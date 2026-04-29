@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lobby del juego</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./js/config.js" defer></script>
+  <script src="./js/auth.js" defer></script>
+  <script src="./js/lobby.js" defer></script>
+</head>
+<body data-page="lobby">
+  <main class="page page--lobby">
+    <section class="panel lobby-panel">
+      <header class="lobby-header">
+        <div>
+          <p class="eyebrow">Lobby</p>
+          <h1>Jugadores conectados</h1>
+        </div>
+        <button id="logout-button" type="button" class="button button--ghost">Cerrar sesion</button>
+      </header>
+
+      <div class="lobby-meta">
+        <p>Usuario actual: <span id="current-username" class="username-value">-</span></p>
+        <p>
+          Estado:
+          <span id="connection-status" class="status-badge status-badge--connecting">Conectando...</span>
+        </p>
+      </div>
+
+      <p id="lobby-message" class="message message--inline" aria-live="polite"></p>
+
+      <ul id="players-list" class="players-list" aria-live="polite"></ul>
+    </section>
+  </main>
+</body>
+</html>

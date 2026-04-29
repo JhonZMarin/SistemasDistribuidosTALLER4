@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso al juego</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./js/config.js" defer></script>
+  <script src="./js/auth.js" defer></script>
+</head>
+<body data-page="login">
+  <main class="page page--auth">
+    <section class="hero">
+      <p class="eyebrow">Sistema distribuido</p>
+      <h1>Acceso al lobby</h1>
+      <p class="hero__copy">
+        Registra un usuario nuevo o inicia sesion para conectarte al coordinador en tiempo real.
+      </p>
+    </section>
+
+    <section class="auth-grid">
+      <article class="panel">
+        <h2>Registro</h2>
+        <form id="register-form" class="form" novalidate>
+          <label class="field">
+            <span>Username</span>
+            <input id="register-username" name="username" type="text" autocomplete="username" required>
+          </label>
+
+          <label class="field">
+            <span>Password</span>
+            <input id="register-password" name="password" type="password" autocomplete="new-password" required>
+          </label>
+
+          <button type="submit" class="button button--primary">Crear cuenta</button>
+          <p id="register-message" class="message" aria-live="polite"></p>
+        </form>
+      </article>
+
+      <article class="panel">
+        <h2>Login</h2>
+        <form id="login-form" class="form" novalidate>
+          <label class="field">
+            <span>Username</span>
+            <input id="login-username" name="username" type="text" autocomplete="username" required>
+          </label>
+
+          <label class="field">
+            <span>Password</span>
+            <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          </label>
+
+          <button type="submit" class="button button--accent">Iniciar sesion</button>
+          <p id="login-message" class="message" aria-live="polite"></p>
+        </form>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
