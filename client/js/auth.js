@@ -1,6 +1,8 @@
 const AUTH_STORAGE_KEYS = Object.freeze({
   token: "token",
-  username: "username"
+  username: "username",
+  noticeMessage: "notice_message",
+  noticeType: "notice_type"
 });
 
 function buildAuthUrl(path) {
@@ -212,6 +214,29 @@ function getStoredUsername() {
   return localStorage.getItem(AUTH_STORAGE_KEYS.username);
 }
 
+function saveSessionNotice(message, type) {
+  if (!message) {
+    return;
+  }
+
+  sessionStorage.setItem(AUTH_STORAGE_KEYS.noticeMessage, message);
+  sessionStorage.setItem(AUTH_STORAGE_KEYS.noticeType, type || "info");
+}
+
+function consumeSessionNotice() {
+  const message = sessionStorage.getItem(AUTH_STORAGE_KEYS.noticeMessage);
+  const type = sessionStorage.getItem(AUTH_STORAGE_KEYS.noticeType) || "info";
+
+  sessionStorage.removeItem(AUTH_STORAGE_KEYS.noticeMessage);
+  sessionStorage.removeItem(AUTH_STORAGE_KEYS.noticeType);
+
+  if (!message) {
+    return null;
+  }
+
+  return { message, type };
+}
+
 function setMessage(element, message, type) {
   if (!element) {
     return;
@@ -248,14 +273,18 @@ function bindAuthPage() {
   const registerMessage = document.getElementById("register-message");
   const loginForm = document.getElementById("login-form");
   const loginMessage = document.getElementById("login-message");
+  const pendingNotice = consumeSessionNotice();
+
+  if (pendingNotice && loginMessage) {
+    setMessage(loginMessage, pendingNotice.message, pendingNotice.type);
+  }
 
   if (registerForm) {
     registerForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       setMessage(registerMessage, "", "info");
-      toggleFormState(registerForm, true);
-
       const formData = new FormData(registerForm);
+      toggleFormState(registerForm, true);
       const result = await register(
         formData.get("username"),
         formData.get("password")
@@ -275,9 +304,8 @@ function bindAuthPage() {
     loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       setMessage(loginMessage, "", "info");
-      toggleFormState(loginForm, true);
-
       const formData = new FormData(loginForm);
+      toggleFormState(loginForm, true);
       const result = await login(
         formData.get("username"),
         formData.get("password")
@@ -300,7 +328,8 @@ window.AuthStorage = {
   saveSession,
   clearSession,
   getStoredToken,
-  getStoredUsername
+  getStoredUsername,
+  saveSessionNotice
 };
 
 window.setUiMessage = setMessage;

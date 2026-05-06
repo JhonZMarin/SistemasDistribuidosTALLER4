@@ -62,28 +62,38 @@ function finishSession(options) {
   sessionFinished = true;
   window.AuthStorage.clearSession();
 
-  if (settings.showAlert) {
-    window.alert(settings.alertMessage || "Sesion terminada");
+  if (settings.message) {
+    window.AuthStorage.saveSessionNotice(settings.message, settings.messageType || "error");
   }
 
   redirectToLogin();
 }
 
-function handleSocketClose() {
+function resolveCloseMessage(event) {
+  if (event && event.code === 4001) {
+    return "Tu sesion es invalida o vencio. Inicia sesion nuevamente.";
+  }
+
+  return "La conexion con el coordinador se cerro y tu sesion finalizo.";
+}
+
+function handleSocketClose(event) {
   if (logoutRequested || pageUnloading) {
     return;
   }
 
+  const closeMessage = resolveCloseMessage(event);
+
   window.setUiMessage(
     document.getElementById("lobby-message"),
-    "La conexion se cerro y tu sesion finalizo.",
+    closeMessage,
     "error"
   );
   updateConnectionStatus("Desconectado", "disconnected");
 
   finishSession({
-    showAlert: true,
-    alertMessage: "Sesion terminada"
+    message: closeMessage,
+    messageType: "error"
   });
 }
 
@@ -102,8 +112,8 @@ function connectToLobby(token) {
       "error"
     );
     finishSession({
-      showAlert: true,
-      alertMessage: "Sesion terminada"
+      message: "No fue posible conectarte al coordinador. Inicia sesion de nuevo.",
+      messageType: "error"
     });
     return;
   }
@@ -154,7 +164,9 @@ function connectToLobby(token) {
     handleSocketClose();
   };
 
-  lobbySocket.onclose = handleSocketClose;
+  lobbySocket.onclose = (event) => {
+    handleSocketClose(event);
+  };
 }
 
 function logout() {
