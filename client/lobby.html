@@ -11,27 +11,54 @@
   <script src="./js/lobby.js" defer></script>
 </head>
 <body data-page="lobby">
+  <div class="scene" aria-hidden="true">
+    <div class="scene__glow scene__glow--cyan"></div>
+    <div class="scene__glow scene__glow--amber"></div>
+    <div class="scene__grid"></div>
+    <div class="scene__noise"></div>
+  </div>
+
   <main class="page page--lobby">
     <section class="panel lobby-panel">
       <header class="lobby-header">
         <div>
-          <p class="eyebrow">Lobby</p>
-          <h1>Jugadores conectados</h1>
+          <p class="eyebrow">Sala orbital</p>
+          <h1>Radar de jugadores</h1>
+          <p class="panel__subtitle">El coordinador transmite en vivo cada entrada y salida del escuadron.</p>
         </div>
-        <button id="logout-button" type="button" class="button button--ghost">Cerrar sesion</button>
+        <button id="logout-button" type="button" class="button button--ghost">Salir de cabina</button>
       </header>
 
-      <div class="lobby-meta">
-        <p>Usuario actual: <span id="current-username" class="username-value">-</span></p>
-        <p>
-          Estado:
+      <div class="lobby-dashboard">
+        <article class="meta-card">
+          <span class="meta-card__label">Piloto actual</span>
+          <strong id="current-username" class="username-value">-</strong>
+          <span class="meta-card__hint">Identidad activa en esta cabina</span>
+        </article>
+
+        <article class="meta-card">
+          <span class="meta-card__label">Enlace</span>
           <span id="connection-status" class="status-badge status-badge--connecting">Conectando...</span>
-        </p>
+          <span class="meta-card__hint">Estado del socket con el coordinador</span>
+        </article>
+
+        <article class="meta-card">
+          <span class="meta-card__label">Lectura radar</span>
+          <strong id="players-count" class="players-count">0 pilotos</strong>
+          <span class="meta-card__hint">Actualizado con cada broadcast</span>
+        </article>
       </div>
 
-      <p id="lobby-message" class="message message--inline" aria-live="polite"></p>
+      <p id="lobby-message" class="message message--inline message--hud" aria-live="polite"></p>
 
-      <ul id="players-list" class="players-list" aria-live="polite"></ul>
+      <section class="radar-shell" aria-label="Jugadores en linea">
+        <div class="radar-shell__header">
+          <span>Escuadron en linea</span>
+          <span class="radar-shell__tag">SYNC</span>
+        </div>
+
+        <ul id="players-list" class="players-list" aria-live="polite"></ul>
+      </section>
     </section>
   </main>
 </body>

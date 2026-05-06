@@ -10,18 +10,45 @@
   <script src="./js/auth.js" defer></script>
 </head>
 <body data-page="login">
+  <div class="scene" aria-hidden="true">
+    <div class="scene__glow scene__glow--cyan"></div>
+    <div class="scene__glow scene__glow--amber"></div>
+    <div class="scene__grid"></div>
+    <div class="scene__noise"></div>
+  </div>
+
   <main class="page page--auth">
-    <section class="hero">
-      <p class="eyebrow">Sistema distribuido</p>
-      <h1>Acceso al lobby</h1>
+    <section class="hero hero--auth">
+      <p class="eyebrow">Nodo de acceso</p>
+      <h1>Prepara tu piloto para entrar al sector online.</h1>
       <p class="hero__copy">
-        Registra un usuario nuevo o inicia sesion para conectarte al coordinador en tiempo real.
+        Crea identidad, sincroniza credenciales y conecta tu cabina al coordinador en tiempo real.
       </p>
+
+      <div class="hero-stats" aria-label="Caracteristicas del sistema">
+        <article class="stat-card">
+          <span class="stat-card__value">HTTP</span>
+          <span class="stat-card__label">registro y login</span>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-card__value">JWT</span>
+          <span class="stat-card__label">sesion segura</span>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-card__value">WS</span>
+          <span class="stat-card__label">lobby en vivo</span>
+        </article>
+      </div>
     </section>
 
     <section class="auth-grid">
       <article class="panel">
+        <p class="panel__kicker">Crear identidad</p>
         <h2>Registro</h2>
+        <p class="panel__subtitle">Reserva tu alias antes de desplegarte en el radar del lobby.</p>
+
         <form id="register-form" class="form" novalidate>
           <label class="field">
             <span>Username</span>
@@ -39,7 +66,10 @@
       </article>
 
       <article class="panel">
+        <p class="panel__kicker">Reingresar a cabina</p>
         <h2>Login</h2>
+        <p class="panel__subtitle">Vuelve a conectar tu sesion y abre el canal con el coordinador.</p>
+
         <form id="login-form" class="form" novalidate>
           <label class="field">
             <span>Username</span>

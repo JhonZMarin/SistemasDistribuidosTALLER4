@@ -2,6 +2,7 @@ let lobbySocket = null;
 let logoutRequested = false;
 let pageUnloading = false;
 let sessionFinished = false;
+let currentLobbyUsername = "";
 
 function redirectToLogin() {
   window.location.replace("./login.html");
@@ -25,6 +26,27 @@ function updateConnectionStatus(message, variant) {
   statusElement.classList.add(`status-badge--${variant}`);
 }
 
+function updatePlayersCount(count) {
+  const playersCountElement = document.getElementById("players-count");
+
+  if (!playersCountElement) {
+    return;
+  }
+
+  const safeCount = Number.isFinite(count) && count > 0 ? count : 0;
+  const label = safeCount === 1 ? "piloto" : "pilotos";
+  playersCountElement.textContent = `${safeCount} ${label}`;
+}
+
+function buildCallsign(username) {
+  const compactName = String(username || "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 2)
+    .toUpperCase();
+
+  return compactName || "??";
+}
+
 function renderPlayers(players) {
   const listElement = document.getElementById("players-list");
 
@@ -35,19 +57,49 @@ function renderPlayers(players) {
   listElement.innerHTML = "";
 
   if (!Array.isArray(players) || players.length === 0) {
+    updatePlayersCount(0);
     const emptyItem = document.createElement("li");
     emptyItem.className = "players-list__empty";
-    emptyItem.textContent = "No hay jugadores en linea.";
+    emptyItem.textContent = "No hay pilotos en linea. Esperando una nueva senal del coordinador.";
     listElement.appendChild(emptyItem);
     return;
   }
 
-  players.forEach((player) => {
-    const item = document.createElement("li");
-    item.className = "players-list__item";
-    item.textContent = player && typeof player.username === "string"
+  updatePlayersCount(players.length);
+
+  players.forEach((player, index) => {
+    const username = player && typeof player.username === "string"
       ? player.username
       : "Jugador sin nombre";
+    const isCurrentPlayer = username === currentLobbyUsername;
+    const item = document.createElement("li");
+    item.className = isCurrentPlayer
+      ? "players-list__item players-list__item--current"
+      : "players-list__item";
+
+    const avatar = document.createElement("span");
+    avatar.className = "players-list__avatar";
+    avatar.textContent = buildCallsign(username);
+
+    const content = document.createElement("div");
+    content.className = "players-list__content";
+
+    const name = document.createElement("span");
+    name.className = "players-list__name";
+    name.textContent = username;
+
+    const meta = document.createElement("span");
+    meta.className = "players-list__meta";
+    meta.textContent = isCurrentPlayer
+      ? "Tu cabina esta enlazada al radar"
+      : `Piloto ${String(index + 1).padStart(2, "0")} en linea`;
+
+    const signal = document.createElement("span");
+    signal.className = "players-list__signal";
+    signal.textContent = isCurrentPlayer ? "Tu" : "En linea";
+
+    content.append(name, meta);
+    item.append(avatar, content, signal);
     listElement.appendChild(item);
   });
 }
@@ -202,6 +254,8 @@ function initializeLobbyPage() {
   if (usernameElement) {
     usernameElement.textContent = username || "Usuario";
   }
+
+  currentLobbyUsername = username || "";
 
   if (logoutButton) {
     logoutButton.addEventListener("click", logout);
