@@ -1,0 +1,12 @@
+# Dependencias de Node
+node_modules/
+
+# Variables de entorno (Contiene tu JWT_SECRET y contraseñas)
+.env
+
+# Base de datos SQLite (Para que no subas tus usuarios de prueba)
+*.db
+users.db
+
+# Logs de error
+npm-debug.log*
