@@ -86,7 +86,7 @@ app.post('/login', async (req, res) => {
     const token = jwt.sign(
       { userId: user.id, username: user.username },
       process.env.JWT_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '30s' }
     );
 
     // Responder 200 con el token[cite: 1]
