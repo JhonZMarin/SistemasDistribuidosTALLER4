@@ -1,337 +1,181 @@
 const AUTH_STORAGE_KEYS = Object.freeze({
-  token: "token",
-  username: "username",
-  noticeMessage: "notice_message",
-  noticeType: "notice_type"
+    token: "token",
+    username: "username",
+    noticeMessage: "notice_message",
+    noticeType: "notice_type"
 });
 
+// --- GOOGLE LOGIN (NUEVO REQUISITO) ---
+async function handleGoogleResponse(response) {
+    const idToken = response.credential;
+    await authWithGoogle(idToken);
+}
+
+async function authWithGoogle(idToken, chosenUsername = null) {
+    const body = { idToken };
+    if (chosenUsername) body.username = chosenUsername;
+
+    const res = await fetch(`${window.getAuthBaseUrl()}/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+
+    // Si es la primera vez, el servidor pide un username [cite: 280, 400]
+    if (res.status === 409 && data.error === "username_required") {
+        const username = prompt("¡Bienvenido! Por favor, elige un nombre de usuario para el radar:");
+        if (username) {
+            await authWithGoogle(idToken, username); // Reintentar con el username [cite: 281]
+        }
+    } else if (res.ok) {
+        saveSession(data.token, data.username);
+        window.location.href = "./lobby.html";
+    } else {
+        const errorMsg = data.error || "Error al conectar con Google";
+        alert("Error: " + errorMsg);
+    }
+}
+
+// Configurar el botón oficial de Google [cite: 259]
+function initGoogleSignIn() {
+    if (typeof google === 'undefined') return;
+    google.accounts.id.initialize({
+        client_id: "TU_GOOGLE_CLIENT_ID.apps.googleusercontent.com", // REEMPLAZAR CON TU ID
+        callback: handleGoogleResponse
+    });
+    const btnContainer = document.getElementById("google-signin-button");
+    if (btnContainer) {
+        google.accounts.id.renderButton(btnContainer, { theme: "outline", size: "large" });
+    }
+}
+
+// --- FUNCIONES EXISTENTES ---
 function buildAuthUrl(path) {
-  return `${window.getAuthBaseUrl()}${path}`;
+    return `${window.getAuthBaseUrl()}${path}`;
 }
 
 async function readJsonSafely(response) {
-  const contentType = response.headers.get("content-type") || "";
-
-  if (!contentType.includes("application/json")) {
-    return null;
-  }
-
-  try {
-    return await response.json();
-  } catch (error) {
-    return null;
-  }
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) return null;
+    try { return await response.json(); } catch (error) { return null; }
 }
 
 function validateCredentials(username, password) {
-  const cleanUsername = String(username || "").trim();
-  const cleanPassword = String(password || "");
-
-  if (!cleanUsername || !cleanPassword) {
-    return {
-      ok: false,
-      message: "Ingresa username y password."
-    };
-  }
-
-  return {
-    ok: true,
-    username: cleanUsername,
-    password: cleanPassword
-  };
+    const cleanUsername = String(username || "").trim();
+    const cleanPassword = String(password || "");
+    if (!cleanUsername || !cleanPassword) {
+        return { ok: false, message: "Ingresa username y password." };
+    }
+    return { ok: true, username: cleanUsername, password: cleanPassword };
 }
 
 async function sendAuthRequest(path, credentials) {
-  try {
-    const response = await fetch(buildAuthUrl(path), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(credentials)
-    });
-
-    const data = await readJsonSafely(response);
-
-    return {
-      ok: response.ok,
-      status: response.status,
-      data
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      data: null
-    };
-  }
+    try {
+        const response = await fetch(buildAuthUrl(path), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(credentials)
+        });
+        const data = await readJsonSafely(response);
+        return { ok: response.ok, status: response.status, data };
+    } catch (error) {
+        return { ok: false, status: 0, data: null };
+    }
 }
 
 async function register(username, password) {
-  const validation = validateCredentials(username, password);
+    const validation = validateCredentials(username, password);
+    if (!validation.ok) return { ok: false, status: 400, message: validation.message };
 
-  if (!validation.ok) {
-    return {
-      ok: false,
-      status: 400,
-      message: validation.message
-    };
-  }
+    const result = await sendAuthRequest("/register", {
+        username: validation.username,
+        password: validation.password
+    });
 
-  const result = await sendAuthRequest("/register", {
-    username: validation.username,
-    password: validation.password
-  });
-
-  if (result.ok) {
-    return {
-      ok: true,
-      status: result.status,
-      message: "Registro exitoso. Ya puedes iniciar sesion.",
-      data: result.data
-    };
-  }
-
-  if (result.status === 409) {
-    return {
-      ok: false,
-      status: 409,
-      message: "El usuario ya existe."
-    };
-  }
-
-  if (result.status === 400) {
-    return {
-      ok: false,
-      status: 400,
-      message: "Datos invalidos. Verifica username y password."
-    };
-  }
-
-  if (result.status === 0) {
-    return {
-      ok: false,
-      status: 0,
-      message: "No se pudo conectar con el servicio de autenticacion."
-    };
-  }
-
-  return {
-    ok: false,
-    status: result.status,
-    message: "No fue posible completar el registro."
-  };
+    if (result.ok) return { ok: true, status: result.status, message: "Registro exitoso. Inicia sesión." };
+    if (result.status === 409) return { ok: false, status: 409, message: "El usuario ya existe." };
+    return { ok: false, status: result.status, message: "Error en el registro." };
 }
 
 async function login(username, password) {
-  const validation = validateCredentials(username, password);
+    const validation = validateCredentials(username, password);
+    if (!validation.ok) return { ok: false, status: 400, message: validation.message };
 
-  if (!validation.ok) {
-    return {
-      ok: false,
-      status: 400,
-      message: validation.message
-    };
-  }
+    const result = await sendAuthRequest("/login", {
+        username: validation.username,
+        password: validation.password
+    });
 
-  const result = await sendAuthRequest("/login", {
-    username: validation.username,
-    password: validation.password
-  });
-
-  if (result.ok) {
-    const token = result.data && typeof result.data.token === "string"
-      ? result.data.token
-      : "";
-    const resolvedUsername = result.data && typeof result.data.username === "string"
-      ? result.data.username
-      : validation.username;
-
-    if (!token) {
-      return {
-        ok: false,
-        status: 502,
-        message: "La respuesta del servidor no es valida."
-      };
+    if (result.ok) {
+        return {
+            ok: true,
+            status: result.status,
+            token: result.data.token,
+            username: result.data.username
+        };
     }
-
-    return {
-      ok: true,
-      status: result.status,
-      message: "Inicio de sesion exitoso.",
-      token,
-      username: resolvedUsername,
-      data: result.data
-    };
-  }
-
-  if (result.status === 400) {
-    return {
-      ok: false,
-      status: 400,
-      message: "Datos invalidos. Verifica username y password."
-    };
-  }
-
-  if (result.status === 401) {
-    return {
-      ok: false,
-      status: 401,
-      message: "Usuario o password incorrectos."
-    };
-  }
-
-  if (result.status === 0) {
-    return {
-      ok: false,
-      status: 0,
-      message: "No se pudo conectar con el servicio de autenticacion."
-    };
-  }
-
-  return {
-    ok: false,
-    status: result.status,
-    message: "No fue posible iniciar sesion."
-  };
+    return { ok: false, status: result.status, message: "Credenciales inválidas." };
 }
 
 function saveSession(token, username) {
-  localStorage.setItem(AUTH_STORAGE_KEYS.token, token);
-  localStorage.setItem(AUTH_STORAGE_KEYS.username, username);
+    localStorage.setItem(AUTH_STORAGE_KEYS.token, token);
+    localStorage.setItem(AUTH_STORAGE_KEYS.username, username);
 }
 
 function clearSession() {
-  localStorage.removeItem(AUTH_STORAGE_KEYS.token);
-  localStorage.removeItem(AUTH_STORAGE_KEYS.username);
-}
-
-function getStoredToken() {
-  return localStorage.getItem(AUTH_STORAGE_KEYS.token);
-}
-
-function getStoredUsername() {
-  return localStorage.getItem(AUTH_STORAGE_KEYS.username);
-}
-
-function saveSessionNotice(message, type) {
-  if (!message) {
-    return;
-  }
-
-  sessionStorage.setItem(AUTH_STORAGE_KEYS.noticeMessage, message);
-  sessionStorage.setItem(AUTH_STORAGE_KEYS.noticeType, type || "info");
-}
-
-function consumeSessionNotice() {
-  const message = sessionStorage.getItem(AUTH_STORAGE_KEYS.noticeMessage);
-  const type = sessionStorage.getItem(AUTH_STORAGE_KEYS.noticeType) || "info";
-
-  sessionStorage.removeItem(AUTH_STORAGE_KEYS.noticeMessage);
-  sessionStorage.removeItem(AUTH_STORAGE_KEYS.noticeType);
-
-  if (!message) {
-    return null;
-  }
-
-  return { message, type };
+    localStorage.removeItem(AUTH_STORAGE_KEYS.token);
+    localStorage.removeItem(AUTH_STORAGE_KEYS.username);
 }
 
 function setMessage(element, message, type) {
-  if (!element) {
-    return;
-  }
-
-  element.textContent = message || "";
-  element.classList.remove("message--success", "message--error", "message--info");
-
-  if (!message) {
-    return;
-  }
-
-  const resolvedType = type || "info";
-  element.classList.add(`message--${resolvedType}`);
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "message";
+    if (message) element.classList.add(`message--${type || "info"}`);
 }
 
 function toggleFormState(form, disabled) {
-  if (!form) {
-    return;
-  }
-
-  const controls = form.querySelectorAll("input, button");
-  controls.forEach((control) => {
-    control.disabled = disabled;
-  });
+    if (!form) return;
+    form.querySelectorAll("input, button").forEach(c => c.disabled = disabled);
 }
 
 function bindAuthPage() {
-  if (!document.body || document.body.dataset.page !== "login") {
-    return;
-  }
+    if (!document.body || document.body.dataset.page !== "login") return;
 
-  const registerForm = document.getElementById("register-form");
-  const registerMessage = document.getElementById("register-message");
-  const loginForm = document.getElementById("login-form");
-  const loginMessage = document.getElementById("login-message");
-  const pendingNotice = consumeSessionNotice();
+    initGoogleSignIn(); // Iniciar Google
 
-  if (pendingNotice && loginMessage) {
-    setMessage(loginMessage, pendingNotice.message, pendingNotice.type);
-  }
+    const registerForm = document.getElementById("register-form");
+    const loginForm = document.getElementById("login-form");
 
-  if (registerForm) {
-    registerForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      setMessage(registerMessage, "", "info");
-      const formData = new FormData(registerForm);
-      toggleFormState(registerForm, true);
-      const result = await register(
-        formData.get("username"),
-        formData.get("password")
-      );
+    if (registerForm) {
+        registerForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const formData = new FormData(registerForm);
+            toggleFormState(registerForm, true);
+            const res = await register(formData.get("username"), formData.get("password"));
+            setMessage(document.getElementById("register-message"), res.message, res.ok ? "success" : "error");
+            toggleFormState(registerForm, false);
+        });
+    }
 
-      setMessage(registerMessage, result.message, result.ok ? "success" : "error");
-
-      if (result.ok) {
-        registerForm.reset();
-      }
-
-      toggleFormState(registerForm, false);
-    });
-  }
-
-  if (loginForm) {
-    loginForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      setMessage(loginMessage, "", "info");
-      const formData = new FormData(loginForm);
-      toggleFormState(loginForm, true);
-      const result = await login(
-        formData.get("username"),
-        formData.get("password")
-      );
-
-      if (!result.ok) {
-        setMessage(loginMessage, result.message, "error");
-        toggleFormState(loginForm, false);
-        return;
-      }
-
-      saveSession(result.token, result.username);
-      setMessage(loginMessage, "Acceso correcto. Redirigiendo...", "success");
-      window.location.href = "./lobby.html";
-    });
-  }
+    if (loginForm) {
+        loginForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const formData = new FormData(loginForm);
+            toggleFormState(loginForm, true);
+            const res = await login(formData.get("username"), formData.get("password"));
+            if (res.ok) {
+                saveSession(res.token, res.username);
+                window.location.href = "./lobby.html";
+            } else {
+                setMessage(document.getElementById("login-message"), res.message, "error");
+                toggleFormState(loginForm, false);
+            }
+        });
+    }
 }
 
-window.AuthStorage = {
-  saveSession,
-  clearSession,
-  getStoredToken,
-  getStoredUsername,
-  saveSessionNotice
-};
-
-window.setUiMessage = setMessage;
-
 document.addEventListener("DOMContentLoaded", bindAuthPage);
+window.getStoredToken = () => localStorage.getItem(AUTH_STORAGE_KEYS.token);

@@ -3,63 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lobby del juego</title>
+  <title>Radar de Pilotos - UB</title>
   <link rel="stylesheet" href="./styles.css">
   <script src="./js/runtime-config.js" defer></script>
   <script src="./js/config.js" defer></script>
   <script src="./js/auth.js" defer></script>
-  <script src="./js/lobby.js" defer></script>
+  <script type="module" src="./js/lobby.js" defer></script>
 </head>
 <body data-page="lobby">
-  <div class="scene" aria-hidden="true">
-    <div class="scene__glow scene__glow--cyan"></div>
-    <div class="scene__glow scene__glow--amber"></div>
-    <div class="scene__grid"></div>
-    <div class="scene__noise"></div>
-  </div>
-
-  <main class="page page--lobby">
-    <section class="panel lobby-panel">
-      <header class="lobby-header">
-        <div>
-          <p class="eyebrow">Sala orbital</p>
-          <h1>Radar de jugadores</h1>
-          <p class="panel__subtitle">El coordinador transmite en vivo cada entrada y salida del escuadron.</p>
-        </div>
-        <button id="logout-button" type="button" class="button button--ghost">Salir de cabina</button>
-      </header>
-
-      <div class="lobby-dashboard">
-        <article class="meta-card">
-          <span class="meta-card__label">Piloto actual</span>
-          <strong id="current-username" class="username-value">-</strong>
-          <span class="meta-card__hint">Identidad activa en esta cabina</span>
-        </article>
-
-        <article class="meta-card">
-          <span class="meta-card__label">Enlace</span>
-          <span id="connection-status" class="status-badge status-badge--connecting">Conectando...</span>
-          <span class="meta-card__hint">Estado del socket con el coordinador</span>
-        </article>
-
-        <article class="meta-card">
-          <span class="meta-card__label">Lectura radar</span>
-          <strong id="players-count" class="players-count">0 pilotos</strong>
-          <span class="meta-card__hint">Actualizado con cada broadcast</span>
-        </article>
-      </div>
-
-      <p id="lobby-message" class="message message--inline message--hud" aria-live="polite"></p>
-
-      <section class="radar-shell" aria-label="Jugadores en linea">
-        <div class="radar-shell__header">
-          <span>Escuadron en linea</span>
-          <span class="radar-shell__tag">SYNC</span>
-        </div>
-
-        <ul id="players-list" class="players-list" aria-live="polite"></ul>
-      </section>
+  <main class="page page--lobby" style="display: grid; grid-template-columns: 1fr 350px; gap: 20px;">
+    
+    <section class="panel">
+      <canvas id="gameCanvas" style="border: 1px solid var(--line); border-radius: 12px; background: #000;"></canvas>
     </section>
+
+    <aside style="display: flex; flex-direction: column; gap: 20px;">
+      
+      <article class="panel" style="border-color: var(--amber);">
+        <p class="panel__kicker">Estado del Piloto</p>
+        <h3>Actualizar Mood</h3>
+        <div class="mood-selector" style="display: flex; gap: 10px; margin-top: 15px; font-size: 1.5rem;">
+          <button onclick="updateMood('🚀')" style="cursor:pointer; background:none; border:1px solid var(--line); border-radius:8px;">🚀</button>
+          <button onclick="updateMood('👨‍🚀')" style="cursor:pointer; background:none; border:1px solid var(--line); border-radius:8px;">👨‍🚀</button>
+          <button onclick="updateMood('🤖')" style="cursor:pointer; background:none; border:1px solid var(--line); border-radius:8px;">🤖</button>
+          <button onclick="updateMood('🔥')" style="cursor:pointer; background:none; border:1px solid var(--line); border-radius:8px;">🔥</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <header style="display: flex; justify-content: space-between; align-items: center;">
+          <h3>Radar</h3>
+          <button id="logout-button" class="button button--ghost" style="padding: 5px 10px; min-height: auto;">Salir</button>
+        </header>
+        <div id="connection-status" class="status-badge status-badge--connecting">Conectando...</div>
+        <ul id="players-list" class="players-list" style="margin-top: 15px;"></ul>
+      </article>
+
+    </aside>
   </main>
 </body>
 </html>

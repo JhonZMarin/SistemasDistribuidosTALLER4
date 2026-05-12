@@ -32,6 +32,25 @@ function getWebSocketBaseUrl() {
   return wsUrl;
 }
 
-window.CONFIG = CONFIG;
+function getAuthBaseUrl() {
+  const url = window.RUNTIME_CONFIG?.AUTH_URL || "";
+  return url.replace(/\/+$/, "");
+}
+
+function getWebSocketBaseUrl() {
+  const wsUrl = window.RUNTIME_CONFIG?.WS_URL || "";
+  let finalUrl = wsUrl.replace(/\/+$/, "");
+
+  // Evita contenido mixto si el cliente está en HTTPS (Ngrok)
+  if (window.location.protocol === "https:" && finalUrl.startsWith("ws://")) {
+    return `wss://${finalUrl.slice("ws://".length)}`;
+  }
+
+  return finalUrl;
+}
+
 window.getAuthBaseUrl = getAuthBaseUrl;
 window.getWebSocketBaseUrl = getWebSocketBaseUrl;
+
+window.CONFIG = CONFIG;
+
