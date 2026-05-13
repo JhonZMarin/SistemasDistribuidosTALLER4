@@ -1,9 +1,10 @@
 {
   "name": "auth-service",
-  "version": "1.0.0",
-  "description": "",
+  "version": "2.0.0",
+  "description": "Servicio de autenticación con login local y Google OAuth",
   "main": "index.js",
   "scripts": {
+    "start": "node --experimental-sqlite index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -11,11 +12,11 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.9.0",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
     "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3"
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.2"
   }
 }
