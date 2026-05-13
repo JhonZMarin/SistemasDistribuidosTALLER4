@@ -14,6 +14,10 @@ function readRequiredEnv(name) {
   return value.replace(/\/+$/, "");
 }
 
+function readOptionalEnv(name) {
+  return String(process.env[name] || "").trim();
+}
+
 function readPort() {
   const rawPort = String(process.env.PORT || "").trim();
 
@@ -32,7 +36,8 @@ function readPort() {
 
 const runtimeConfig = Object.freeze({
   AUTH_URL: readRequiredEnv("AUTH_URL"),
-  WS_URL: readRequiredEnv("WS_URL")
+  WS_URL: readRequiredEnv("WS_URL"),
+  GOOGLE_CLIENT_ID: readOptionalEnv("GOOGLE_CLIENT_ID")
 });
 
 const port = readPort();

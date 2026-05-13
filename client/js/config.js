@@ -1,10 +1,11 @@
 const CONFIG = Object.freeze({
-  AUTH_URL: normalizeBaseUrl(window.RUNTIME_CONFIG && window.RUNTIME_CONFIG.AUTH_URL),
-  WS_URL: normalizeBaseUrl(window.RUNTIME_CONFIG && window.RUNTIME_CONFIG.WS_URL)
+  AUTH_URL: normalizeBaseUrl(window.RUNTIME_CONFIG?.AUTH_URL),
+  WS_URL: normalizeBaseUrl(window.RUNTIME_CONFIG?.WS_URL),
+  GOOGLE_CLIENT_ID: String(window.RUNTIME_CONFIG?.GOOGLE_CLIENT_ID || "").trim()
 });
 
 function normalizeBaseUrl(url) {
-  return String(url || "").replace(/\/+$/, "");
+  return String(url || "").trim().replace(/\/+$/, "");
 }
 
 function readConfiguredUrl(key) {
@@ -24,7 +25,6 @@ function getAuthBaseUrl() {
 function getWebSocketBaseUrl() {
   const wsUrl = readConfiguredUrl("WS_URL");
 
-  // Evita contenido mixto cuando el cliente se publica por HTTPS.
   if (window.location.protocol === "https:" && wsUrl.startsWith("ws://")) {
     return `wss://${wsUrl.slice("ws://".length)}`;
   }
@@ -32,25 +32,11 @@ function getWebSocketBaseUrl() {
   return wsUrl;
 }
 
-function getAuthBaseUrl() {
-  const url = window.RUNTIME_CONFIG?.AUTH_URL || "";
-  return url.replace(/\/+$/, "");
-}
-
-function getWebSocketBaseUrl() {
-  const wsUrl = window.RUNTIME_CONFIG?.WS_URL || "";
-  let finalUrl = wsUrl.replace(/\/+$/, "");
-
-  // Evita contenido mixto si el cliente está en HTTPS (Ngrok)
-  if (window.location.protocol === "https:" && finalUrl.startsWith("ws://")) {
-    return `wss://${finalUrl.slice("ws://".length)}`;
-  }
-
-  return finalUrl;
+function getGoogleClientId() {
+  return CONFIG.GOOGLE_CLIENT_ID;
 }
 
 window.getAuthBaseUrl = getAuthBaseUrl;
 window.getWebSocketBaseUrl = getWebSocketBaseUrl;
-
+window.getGoogleClientId = getGoogleClientId;
 window.CONFIG = CONFIG;
-

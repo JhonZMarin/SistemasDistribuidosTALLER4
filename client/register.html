@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registro</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./js/runtime-config.js" defer></script>
+  <script src="./js/config.js" defer></script>
+  <script src="./js/auth.js" defer></script>
+</head>
+<body data-page="register">
+  <div class="scene" aria-hidden="true">
+    <div class="scene__glow scene__glow--cyan"></div>
+    <div class="scene__glow scene__glow--amber"></div>
+    <div class="scene__grid"></div>
+    <div class="scene__noise"></div>
+  </div>
+
+  <main class="page page--auth">
+    <section class="auth-shell auth-shell--register">
+      <article class="auth-card auth-card--register">
+        <div class="auth-card__header">
+          <p class="auth-card__eyebrow">Crear cuenta</p>
+          <h2>Registro</h2>
+          <p class="auth-card__copy">
+            Reserva tu alias y deja lista tu identidad para entrar al radar del lobby.
+          </p>
+        </div>
+
+        <form id="register-form" class="form form--auth" novalidate>
+          <label class="field">
+            <span>Username</span>
+            <input id="register-username" name="username" type="text" autocomplete="username" required>
+          </label>
+
+          <label class="field">
+            <span>Password</span>
+            <input id="register-password" name="password" type="password" autocomplete="new-password" required>
+          </label>
+
+          <button type="submit" class="button button--primary">Crear cuenta</button>
+          <p id="register-message" class="message" aria-live="polite"></p>
+        </form>
+
+        <p class="auth-switch">
+          ¿Ya tienes cuenta?
+          <a class="text-link" href="./login.html">Inicia sesión aquí</a>
+        </p>
+      </article>
+
+      <article class="auth-stage auth-stage--compact">
+        <p class="eyebrow">Identidad local</p>
+        <h1 class="auth-stage__title">Prepara tu cuenta antes de desplegarte en el juego.</h1>
+        <p class="auth-stage__copy">
+          El registro crea tu identidad base para luego iniciar sesion y conectarte al
+          coordinador con JWT y WebSocket.
+        </p>
+
+        <ul class="auth-checklist" aria-label="Ventajas del registro">
+          <li>Alias unico para identificarte en el lobby.</li>
+          <li>Sesiones compatibles con la arquitectura actual del proyecto.</li>
+          <li>Navegacion directa de vuelta al login sin afectar el flujo existente.</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

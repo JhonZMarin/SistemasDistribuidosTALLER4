@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acceso al juego</title>
   <link rel="stylesheet" href="./styles.css">
+  <script src="https://accounts.google.com/gsi/client" async defer data-google-identity-script></script>
   <script src="./js/runtime-config.js" defer></script>
   <script src="./js/config.js" defer></script>
   <script src="./js/auth.js" defer></script>
@@ -18,59 +19,44 @@
   </div>
 
   <main class="page page--auth">
-    <section class="hero hero--auth">
-      <p class="eyebrow">Nodo de acceso</p>
-      <h1>Prepara tu piloto para entrar al sector online.</h1>
-      <p class="hero__copy">
-        Crea identidad, sincroniza credenciales y conecta tu cabina al coordinador en tiempo real.
-      </p>
+    <section class="auth-shell auth-shell--login">
+      <article class="auth-stage">
+        <p class="eyebrow">Nodo de acceso</p>
+        <h1 class="auth-stage__title">Conecta tu cabina y entra al sector multijugador.</h1>
+        <p class="auth-stage__copy">
+          Inicia sesion con tus credenciales locales o con Google para sincronizar tu identidad
+          con el coordinador en tiempo real.
+        </p>
 
-      <div class="hero-stats" aria-label="Caracteristicas del sistema">
-        <article class="stat-card">
-          <span class="stat-card__value">HTTP</span>
-          <span class="stat-card__label">registro y login</span>
-        </article>
+        <div class="auth-pill-row" aria-label="Capacidades del sistema">
+          <span class="auth-pill">JWT seguro</span>
+          <span class="auth-pill">Lobby en vivo</span>
+          <span class="auth-pill">Google Sign-In</span>
+        </div>
 
-        <article class="stat-card">
-          <span class="stat-card__value">JWT</span>
-          <span class="stat-card__label">sesion segura</span>
-        </article>
+        <div class="auth-stage__grid" aria-label="Resumen del acceso">
+          <article class="auth-metric">
+            <span class="auth-metric__value">1</span>
+            <span class="auth-metric__label">sesion para entrar al juego</span>
+          </article>
 
-        <article class="stat-card">
-          <span class="stat-card__value">WS</span>
-          <span class="stat-card__label">lobby en vivo</span>
-        </article>
-      </div>
-    </section>
-
-    <section class="auth-grid">
-      <article class="panel">
-        <p class="panel__kicker">Crear identidad</p>
-        <h2>Registro</h2>
-        <p class="panel__subtitle">Reserva tu alias antes de desplegarte en el radar del lobby.</p>
-
-        <form id="register-form" class="form" novalidate>
-          <label class="field">
-            <span>Username</span>
-            <input id="register-username" name="username" type="text" autocomplete="username" required>
-          </label>
-
-          <label class="field">
-            <span>Password</span>
-            <input id="register-password" name="password" type="password" autocomplete="new-password" required>
-          </label>
-
-          <button type="submit" class="button button--primary">Crear cuenta</button>
-          <p id="register-message" class="message" aria-live="polite"></p>
-        </form>
+          <article class="auth-metric">
+            <span class="auth-metric__value">2</span>
+            <span class="auth-metric__label">metodos de autenticacion disponibles</span>
+          </article>
+        </div>
       </article>
 
-      <article class="panel">
-        <p class="panel__kicker">Reingresar a cabina</p>
-        <h2>Login</h2>
-        <p class="panel__subtitle">Vuelve a conectar tu sesion y abre el canal con el coordinador.</p>
+      <article class="auth-card">
+        <div class="auth-card__header">
+          <p class="auth-card__eyebrow">Reingresar</p>
+          <h2>Iniciar sesion</h2>
+          <p class="auth-card__copy">
+            Usa tu cuenta existente para abrir el canal con el coordinador.
+          </p>
+        </div>
 
-        <form id="login-form" class="form" novalidate>
+        <form id="login-form" class="form form--auth" novalidate>
           <label class="field">
             <span>Username</span>
             <input id="login-username" name="username" type="text" autocomplete="username" required>
@@ -84,6 +70,47 @@
           <button type="submit" class="button button--accent">Iniciar sesion</button>
           <p id="login-message" class="message" aria-live="polite"></p>
         </form>
+
+        <p class="auth-switch">
+          ¿No tienes cuenta?
+          <a class="text-link" href="./register.html">Regístrate aquí</a>
+        </p>
+
+        <div class="auth-divider" role="presentation">
+          <span>o entra con Google</span>
+        </div>
+
+        <section class="google-auth" aria-labelledby="google-auth-title">
+          <p id="google-auth-title" class="google-auth__eyebrow">Acceso federado</p>
+          <p class="google-auth__copy">
+            Usa el boton oficial de Google. Si es tu primera vez, el sistema te pedira elegir un username.
+          </p>
+
+          <div id="google-signin-button" class="google-auth__button"></div>
+
+          <form id="google-username-form" class="form google-auth__username" hidden novalidate>
+            <label class="field">
+              <span>Username para Google</span>
+              <input
+                id="google-username"
+                name="username"
+                type="text"
+                autocomplete="nickname"
+                minlength="3"
+                maxlength="32"
+                pattern="[A-Za-z0-9_]+"
+                required
+              >
+            </label>
+
+            <div class="google-auth__actions">
+              <button type="submit" class="button button--accent">Continuar</button>
+              <button type="button" id="google-username-cancel" class="button button--ghost">Cancelar</button>
+            </div>
+          </form>
+
+          <p id="google-message" class="message" aria-live="polite"></p>
+        </section>
       </article>
     </section>
   </main>
