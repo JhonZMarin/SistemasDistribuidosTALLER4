@@ -1,15 +1,16 @@
 # SistemasDistribuidosTALLER4
 
-Cliente web para la primera parte del proyecto final de Sistemas Distribuidos. Esta base deja lista la interfaz de login/registro y el lobby en tiempo real, consumiendo un servicio de autenticacion HTTP y un coordinador WebSocket.
+Repositorio del cliente web y los servicios base para el Taller 4 de Sistemas Distribuidos.
 
 ## Estructura
 
-- `client/`: HTML, CSS y JavaScript plano del cliente.
+- `client/`: interfaz web de login, registro y lobby.
+- `auth-service/`: servicio HTTP de autenticacion local y con Google.
+- `coordinador/`: servicio WebSocket que valida JWT y mantiene el estado del lobby.
 
-## Configuracion del cliente
+## Variables de entorno
 
-1. Crea `client/.env` a partir de `client/.env.example`.
-2. Ajusta las URLs segun tu entorno:
+### `client/.env`
 
 ```env
 PORT=3000
@@ -18,10 +19,40 @@ WS_URL=ws://localhost:5000
 GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
 ```
 
-Para `ngrok`, cambia `AUTH_URL` a la URL `https://...` del servicio de auth y `WS_URL` a la URL `wss://...` del coordinador.
-Si vas a usar Google Identity Services, agrega tambien el `GOOGLE_CLIENT_ID` del cliente OAuth configurado en Google Cloud.
+### `auth-service/.env`
 
-## Ejecucion
+```env
+PORT=4000
+JWT_SECRET=replace_with_a_secret_at_least_32_chars
+JWT_EXPIRES_IN=1h
+GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
+```
+
+### `coordinador/.env`
+
+```env
+PORT=5000
+JWT_SECRET=replace_with_the_same_secret_used_by_auth_service
+WORLD_WIDTH=800
+WORLD_HEIGHT=600
+PLAYER_RADIUS=20
+PLAYER_SPEED=220
+TICK_RATE=20
+```
+
+## Ejecucion local
+
+```bash
+cd auth-service
+npm install
+npm start
+```
+
+```bash
+cd coordinador
+npm install
+npm start
+```
 
 ```bash
 cd client
@@ -30,14 +61,3 @@ npm start
 ```
 
 Luego abre `http://localhost:3000`.
-
-## Flujo cubierto por el cliente
-
-- Registro de usuario con `POST /register`.
-- Login con `POST /login`.
-- Login con Google usando el boton oficial y `POST /auth/google`.
-- Persistencia de `token` y `username` en `localStorage`.
-- Conexion a `ws://.../connect?token=...`.
-- Actualizacion en vivo de la lista de jugadores conectados.
-- Cierre de sesion manual.
-- Redireccion al login si el WebSocket se cae o el token es rechazado.

@@ -1,0 +1,16 @@
+{
+  "name": "taller4-auth-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node --experimental-sqlite index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
