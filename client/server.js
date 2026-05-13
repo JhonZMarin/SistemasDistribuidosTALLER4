@@ -36,7 +36,7 @@ function readPort() {
 
 const runtimeConfig = Object.freeze({
   AUTH_URL: readRequiredEnv("AUTH_URL"),
-  WS_URL: readRequiredEnv("WS_URL"),
+  WS_URL: readOptionalEnv("WS_URL"),
   GOOGLE_CLIENT_ID: readOptionalEnv("GOOGLE_CLIENT_ID")
 });
 

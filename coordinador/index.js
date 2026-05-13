@@ -6,8 +6,12 @@ const jwt = require("jsonwebtoken");
 const { WebSocketServer, WebSocket } = require("ws");
 const { parse } = require("url");
 
+function readOptionalEnv(name) {
+  return String(process.env[name] || "").trim();
+}
+
 function readRequiredEnv(name, options = {}) {
-  const value = String(process.env[name] || "").trim();
+  const value = readOptionalEnv(name);
   const minLength = Number.isInteger(options.minLength) ? options.minLength : 1;
 
   if (value.length < minLength) {
@@ -18,7 +22,7 @@ function readRequiredEnv(name, options = {}) {
 }
 
 function readIntegerEnv(name, fallback) {
-  const rawValue = String(process.env[name] || "").trim();
+  const rawValue = readOptionalEnv(name);
 
   if (!rawValue) {
     return fallback;
@@ -33,13 +37,50 @@ function readIntegerEnv(name, fallback) {
   return value;
 }
 
-const PORT = readIntegerEnv("PORT", 5000);
+function normalizeBaseUrl(url) {
+  return String(url || "").trim().replace(/\/+$/, "");
+}
+
+function normalizeHttpBaseUrl(url) {
+  const normalized = normalizeBaseUrl(url);
+
+  if (!/^https?:\/\//i.test(normalized)) {
+    throw new Error(`Invalid HTTP URL: ${url}`);
+  }
+
+  return normalized;
+}
+
+function normalizeWebSocketBaseUrl(url) {
+  const normalized = normalizeBaseUrl(url);
+
+  if (!/^wss?:\/\//i.test(normalized)) {
+    throw new Error(`Invalid WebSocket URL: ${url}`);
+  }
+
+  return normalized;
+}
+
+const PUBLIC_PORT = readIntegerEnv("PORT", 5000);
+const PEER_PORT = readIntegerEnv("PEER_PORT", PUBLIC_PORT + 1000);
 const JWT_SECRET = readRequiredEnv("JWT_SECRET", { minLength: 32 });
+const COORDINATOR_ID = readOptionalEnv("COORDINATOR_ID") || `coord-${PUBLIC_PORT}`;
+const AUTH_SERVICE_URL = normalizeHttpBaseUrl(
+  readOptionalEnv("AUTH_SERVICE_URL") || "http://localhost:4000"
+);
+const PUBLIC_WS_URL = normalizeWebSocketBaseUrl(
+  readOptionalEnv("PUBLIC_WS_URL") || `ws://localhost:${PUBLIC_PORT}`
+);
+const PEER_WS_URL = normalizeWebSocketBaseUrl(
+  readOptionalEnv("PEER_WS_URL") || `ws://localhost:${PEER_PORT}`
+);
 const WORLD_WIDTH = readIntegerEnv("WORLD_WIDTH", 800);
 const WORLD_HEIGHT = readIntegerEnv("WORLD_HEIGHT", 600);
 const PLAYER_RADIUS = readIntegerEnv("PLAYER_RADIUS", 20);
 const PLAYER_SPEED = readIntegerEnv("PLAYER_SPEED", 220);
 const TICK_RATE = readIntegerEnv("TICK_RATE", 20);
+const HEARTBEAT_INTERVAL_MS = readIntegerEnv("HEARTBEAT_INTERVAL_MS", 2000);
+const PEER_DISCOVERY_INTERVAL_MS = readIntegerEnv("PEER_DISCOVERY_INTERVAL_MS", 2000);
 
 const WORLD = Object.freeze({
   width: WORLD_WIDTH,
@@ -47,10 +88,19 @@ const WORLD = Object.freeze({
   playerRadius: PLAYER_RADIUS
 });
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+const publicApp = express();
+const publicServer = http.createServer(publicApp);
+const publicWss = new WebSocketServer({ noServer: true });
+
+const peerApp = express();
+const peerServer = http.createServer(peerApp);
+const peerWss = new WebSocketServer({ noServer: true });
+
 const players = new Map();
+const localSockets = new Map();
+const peerDirectory = new Map();
+const peerConnections = new Map();
+const pendingOutboundPeerIds = new Set();
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -86,14 +136,48 @@ function normalizeDirection(rawDirection) {
   return { x, y };
 }
 
-function sanitizeMood(value) {
-  const mood = String(value || "").trim();
-
-  if (!mood) {
-    return "";
+function sanitizeExtraValue(value) {
+  if (typeof value === "boolean") {
+    return value;
   }
 
-  return Array.from(mood).slice(0, 8).join("");
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  const text = String(value || "").trim();
+  return text ? Array.from(text).slice(0, 32).join("") : "";
+}
+
+function sanitizeExtras(extras, baseExtras = {}) {
+  const safeExtras = { ...baseExtras };
+
+  if (!extras || typeof extras !== "object" || Array.isArray(extras)) {
+    return safeExtras;
+  }
+
+  for (const [key, value] of Object.entries(extras)) {
+    const cleanKey = String(key || "").trim();
+
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(cleanKey)) {
+      continue;
+    }
+
+    const cleanValue = sanitizeExtraValue(value);
+
+    if (cleanValue === "") {
+      delete safeExtras[cleanKey];
+      continue;
+    }
+
+    safeExtras[cleanKey] = cleanValue;
+  }
+
+  return safeExtras;
+}
+
+function getLocalPlayerCount() {
+  return localSockets.size;
 }
 
 function serializePlayer(player) {
@@ -103,11 +187,12 @@ function serializePlayer(player) {
     provider: player.provider,
     x: player.x,
     y: player.y,
-    extras: { ...player.extras }
+    extras: { ...player.extras },
+    coordinatorId: player.ownerCoordinatorId
   };
 }
 
-function buildStateMessage() {
+function buildStatePayload() {
   return JSON.stringify({
     type: "state",
     players: Array.from(players.values()).map(serializePlayer)
@@ -115,22 +200,36 @@ function buildStateMessage() {
 }
 
 function broadcastState() {
-  const payload = buildStateMessage();
+  const payload = buildStatePayload();
 
-  for (const player of players.values()) {
-    if (player.socket.readyState === WebSocket.OPEN) {
-      player.socket.send(payload);
+  for (const [userId, socket] of localSockets.entries()) {
+    if (socket.readyState !== WebSocket.OPEN) {
+      localSockets.delete(userId);
+      continue;
+    }
+
+    socket.send(payload);
+  }
+}
+
+function broadcastToPeers(message) {
+  const payload = JSON.stringify(message);
+
+  for (const peerConnection of peerConnections.values()) {
+    if (peerConnection.socket.readyState === WebSocket.OPEN) {
+      peerConnection.socket.send(payload);
     }
   }
 }
 
 function sendWelcome(player) {
-  if (player.socket.readyState !== WebSocket.OPEN) {
+  if (!player.localSocket || player.localSocket.readyState !== WebSocket.OPEN) {
     return;
   }
 
-  player.socket.send(JSON.stringify({
+  player.localSocket.send(JSON.stringify({
     type: "welcome",
+    coordinatorId: COORDINATOR_ID,
     you: {
       userId: player.userId,
       username: player.username,
@@ -140,15 +239,107 @@ function sendWelcome(player) {
   }));
 }
 
-function removePlayerIfCurrent(userId, socket) {
+function buildPlayerJoinedMessage(player) {
+  return {
+    type: "player_joined",
+    origin: COORDINATOR_ID,
+    userId: player.userId,
+    username: player.username,
+    provider: player.provider,
+    x: player.x,
+    y: player.y,
+    extras: { ...player.extras },
+    intent: { dir: { ...player.intent } }
+  };
+}
+
+function removePlayersOwnedBy(ownerCoordinatorId) {
+  let changed = false;
+
+  for (const [userId, player] of players.entries()) {
+    if (player.ownerCoordinatorId === ownerCoordinatorId) {
+      if (player.localSocket) {
+        localSockets.delete(userId);
+      }
+      players.delete(userId);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    broadcastState();
+  }
+}
+
+function removeLocalPlayerIfCurrent(userId, socket) {
+  const currentSocket = localSockets.get(userId);
   const currentPlayer = players.get(userId);
 
-  if (!currentPlayer || currentPlayer.socket !== socket) {
+  if (currentSocket !== socket || !currentPlayer || currentPlayer.localSocket !== socket) {
     return;
   }
 
+  localSockets.delete(userId);
   players.delete(userId);
+
+  broadcastToPeers({
+    type: "player_left",
+    origin: COORDINATOR_ID,
+    userId
+  });
+
   broadcastState();
+}
+
+function upsertRemotePlayer(message) {
+  const userId = String(message.userId || "").trim();
+  const username = String(message.username || "").trim();
+  const ownerCoordinatorId = String(message.origin || "").trim();
+
+  if (!userId || !username || !ownerCoordinatorId || ownerCoordinatorId === COORDINATOR_ID) {
+    return false;
+  }
+
+  const existing = players.get(userId);
+  const nextPlayer = {
+    userId,
+    username,
+    provider: String(message.provider || existing?.provider || "local").trim() || "local",
+    x: Number.isFinite(Number(message.x)) ? Number(message.x) : existing?.x ?? createSpawnPoint(userId).x,
+    y: Number.isFinite(Number(message.y)) ? Number(message.y) : existing?.y ?? createSpawnPoint(userId).y,
+    extras: sanitizeExtras(message.extras, existing?.extras || {}),
+    intent: normalizeDirection(message.intent?.dir || existing?.intent),
+    ownerCoordinatorId,
+    localSocket: null
+  };
+
+  players.set(userId, nextPlayer);
+  return true;
+}
+
+function applyRemoteIntent(message) {
+  const userId = String(message.userId || "").trim();
+  const player = players.get(userId);
+
+  if (!player) {
+    return false;
+  }
+
+  player.intent = normalizeDirection(message.intent?.dir);
+  return true;
+}
+
+function applyRemoteExtras(message) {
+  const userId = String(message.userId || "").trim();
+  const player = players.get(userId);
+
+  if (!player) {
+    return false;
+  }
+
+  player.extras = sanitizeExtras(message.extras, player.extras);
+
+  return true;
 }
 
 function updatePlayerPosition(player, deltaMs) {
@@ -179,16 +370,284 @@ function updatePlayerPosition(player, deltaMs) {
   return true;
 }
 
-app.get("/", (_request, response) => {
+function syncLocalPlayersToPeer(socket) {
+  for (const player of players.values()) {
+    if (player.ownerCoordinatorId !== COORDINATOR_ID) {
+      continue;
+    }
+
+    if (socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    socket.send(JSON.stringify(buildPlayerJoinedMessage(player)));
+  }
+}
+
+function registerPeerConnection(socket, peerId, direction) {
+  const preferredDirection = COORDINATOR_ID.localeCompare(peerId) < 0 ? "outbound" : "inbound";
+  const existing = peerConnections.get(peerId);
+
+  if (existing && existing.socket !== socket) {
+    if (existing.direction === preferredDirection) {
+      socket.close(4003, "duplicate peer connection");
+      return false;
+    }
+
+    existing.socket.close(4003, "peer connection replaced");
+    peerConnections.delete(peerId);
+  }
+
+  peerConnections.set(peerId, {
+    coordinatorId: peerId,
+    peerUrl: socket._mesh.peerUrl || peerDirectory.get(peerId)?.peerUrl || "",
+    direction,
+    socket,
+    connectedAt: Date.now()
+  });
+
+  socket._mesh.peerId = peerId;
+  socket._mesh.established = true;
+  pendingOutboundPeerIds.delete(peerId);
+  syncLocalPlayersToPeer(socket);
+  return true;
+}
+
+function cleanupPeerSocket(socket) {
+  const peerId = socket._mesh?.peerId;
+
+  if (socket._mesh?.expectedPeerId) {
+    pendingOutboundPeerIds.delete(socket._mesh.expectedPeerId);
+  }
+
+  if (!peerId) {
+    return;
+  }
+
+  const current = peerConnections.get(peerId);
+  if (current && current.socket === socket) {
+    peerConnections.delete(peerId);
+    removePlayersOwnedBy(peerId);
+  }
+}
+
+function sendPeerHello(socket) {
+  if (socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  socket.send(JSON.stringify({
+    type: "hello",
+    coordinatorId: COORDINATOR_ID
+  }));
+}
+
+function handlePeerHello(socket, message) {
+  const peerId = String(message?.coordinatorId || "").trim();
+
+  if (!peerId || peerId === COORDINATOR_ID) {
+    socket.close(4002, "invalid peer id");
+    return;
+  }
+
+  const direction = socket._mesh.direction;
+
+  if (socket._mesh.expectedPeerId && socket._mesh.expectedPeerId !== peerId) {
+    socket.close(4002, "unexpected peer id");
+    return;
+  }
+
+  if (direction === "inbound" && COORDINATOR_ID.localeCompare(peerId) < 0) {
+    socket.close(4002, "outbound connection required");
+    return;
+  }
+
+  if (direction === "outbound" && COORDINATOR_ID.localeCompare(peerId) >= 0) {
+    socket.close(4002, "inbound connection required");
+    return;
+  }
+
+  if (!registerPeerConnection(socket, peerId, direction)) {
+    return;
+  }
+}
+
+function handlePeerReplicationMessage(socket, message) {
+  if (!socket._mesh.established) {
+    return;
+  }
+
+  if (String(message.origin || "").trim() === COORDINATOR_ID) {
+    return;
+  }
+
+  switch (message.type) {
+    case "player_joined":
+      if (upsertRemotePlayer(message)) {
+        broadcastState();
+      }
+      break;
+    case "player_left":
+      if (players.get(String(message.userId || "").trim())?.ownerCoordinatorId === String(message.origin || "").trim()) {
+        players.delete(String(message.userId || "").trim());
+        broadcastState();
+      }
+      break;
+    case "intent_replicate":
+      applyRemoteIntent(message);
+      break;
+    case "extras_replicate":
+      if (applyRemoteExtras(message)) {
+        broadcastState();
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+function attachPeerSocket(socket, direction, expectedPeerId = "") {
+  socket._mesh = {
+    direction,
+    expectedPeerId,
+    peerId: "",
+    peerUrl: expectedPeerId ? (peerDirectory.get(expectedPeerId)?.peerUrl || "") : "",
+    established: false
+  };
+
+  socket.on("message", (rawMessage) => {
+    let message;
+
+    try {
+      message = JSON.parse(String(rawMessage));
+    } catch (error) {
+      return;
+    }
+
+    if (message.type === "hello") {
+      handlePeerHello(socket, message);
+      return;
+    }
+
+    handlePeerReplicationMessage(socket, message);
+  });
+
+  socket.on("close", () => {
+    cleanupPeerSocket(socket);
+  });
+
+  socket.on("error", () => {
+    cleanupPeerSocket(socket);
+  });
+}
+
+function connectToPeer(peer) {
+  if (!peer?.coordinatorId || pendingOutboundPeerIds.has(peer.coordinatorId) || peerConnections.has(peer.coordinatorId)) {
+    return;
+  }
+
+  if (COORDINATOR_ID.localeCompare(peer.coordinatorId) >= 0) {
+    return;
+  }
+
+  pendingOutboundPeerIds.add(peer.coordinatorId);
+
+  const socket = new WebSocket(peer.peerUrl);
+  attachPeerSocket(socket, "outbound", peer.coordinatorId);
+
+  socket.on("open", () => {
+    socket._mesh.peerUrl = peer.peerUrl;
+    sendPeerHello(socket);
+  });
+}
+
+async function sendHeartbeat() {
+  const payload = {
+    coordinatorId: COORDINATOR_ID,
+    publicUrl: PUBLIC_WS_URL,
+    peerUrl: PEER_WS_URL,
+    connectedPlayers: getLocalPlayerCount(),
+    uptime: Math.floor(process.uptime())
+  };
+
+  try {
+    await fetch(`${AUTH_SERVICE_URL}/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    console.error("heartbeat failed:", error.message);
+  }
+}
+
+async function refreshPeerDirectory() {
+  try {
+    const response = await fetch(`${AUTH_SERVICE_URL}/peers`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const peers = Array.isArray(data?.peers) ? data.peers : [];
+    const visiblePeerIds = new Set();
+
+    for (const peer of peers) {
+      const peerId = String(peer?.coordinatorId || "").trim();
+      const peerUrl = normalizeBaseUrl(peer?.peerUrl);
+
+      if (!peerId || peerId === COORDINATOR_ID || !/^wss?:\/\//i.test(peerUrl)) {
+        continue;
+      }
+
+      visiblePeerIds.add(peerId);
+      peerDirectory.set(peerId, {
+        coordinatorId: peerId,
+        peerUrl
+      });
+
+      connectToPeer({ coordinatorId: peerId, peerUrl });
+    }
+
+    for (const peerId of Array.from(peerDirectory.keys())) {
+      if (visiblePeerIds.has(peerId)) {
+        continue;
+      }
+
+      peerDirectory.delete(peerId);
+
+      const peerConnection = peerConnections.get(peerId);
+      if (peerConnection) {
+        peerConnection.socket.close(4004, "peer removed from directory");
+      }
+    }
+  } catch (error) {
+    console.error("peer discovery failed:", error.message);
+  }
+}
+
+publicApp.get("/", (_request, response) => {
   response.json({
     service: "coordinador",
+    coordinatorId: COORDINATOR_ID,
     status: "ok",
-    connectedPlayers: players.size,
+    connectedPlayers: getLocalPlayerCount(),
+    replicatedPlayers: players.size,
+    peerConnections: Array.from(peerConnections.keys()),
     world: WORLD
   });
 });
 
-server.on("upgrade", (request, socket, head) => {
+peerApp.get("/", (_request, response) => {
+  response.json({
+    service: "coordinador-peer",
+    coordinatorId: COORDINATOR_ID,
+    status: "ok",
+    peers: Array.from(peerConnections.keys())
+  });
+});
+
+publicServer.on("upgrade", (request, socket, head) => {
   const { pathname, query } = parse(request.url || "", true);
 
   if (pathname !== "/connect") {
@@ -215,12 +674,18 @@ server.on("upgrade", (request, socket, head) => {
     return;
   }
 
-  wss.handleUpgrade(request, socket, head, (webSocket) => {
-    wss.emit("connection", webSocket, request, payload);
+  publicWss.handleUpgrade(request, socket, head, (webSocket) => {
+    publicWss.emit("connection", webSocket, request, payload);
   });
 });
 
-wss.on("connection", (socket, _request, payload) => {
+peerServer.on("upgrade", (request, socket, head) => {
+  peerWss.handleUpgrade(request, socket, head, (webSocket) => {
+    peerWss.emit("connection", webSocket, request);
+  });
+});
+
+publicWss.on("connection", (socket, _request, payload) => {
   const userId = String(payload.userId || "").trim();
   const username = String(payload.username || "").trim();
   const provider = String(payload.provider || "local").trim() || "local";
@@ -230,25 +695,30 @@ wss.on("connection", (socket, _request, payload) => {
     return;
   }
 
-  const existingPlayer = players.get(userId);
-  if (existingPlayer) {
-    existingPlayer.socket.close(4001, "connection replaced");
+  const previousSocket = localSockets.get(userId);
+  if (previousSocket) {
+    previousSocket.close(4001, "connection replaced");
   }
 
-  const spawn = createSpawnPoint(userId);
+  const existing = players.get(userId);
+  const spawn = existing ? { x: existing.x, y: existing.y } : createSpawnPoint(userId);
   const player = {
     userId,
     username,
     provider,
     x: spawn.x,
     y: spawn.y,
-    extras: {},
-    intent: { x: 0, y: 0 },
-    socket
+    extras: { ...(existing?.extras || {}) },
+    intent: normalizeDirection(existing?.intent),
+    ownerCoordinatorId: COORDINATOR_ID,
+    localSocket: socket
   };
 
   players.set(userId, player);
+  localSockets.set(userId, socket);
+
   sendWelcome(player);
+  broadcastToPeers(buildPlayerJoinedMessage(player));
   broadcastState();
 
   socket.on("message", (rawMessage) => {
@@ -261,31 +731,49 @@ wss.on("connection", (socket, _request, payload) => {
     }
 
     const currentPlayer = players.get(userId);
-    if (!currentPlayer || currentPlayer.socket !== socket) {
+    if (!currentPlayer || currentPlayer.localSocket !== socket) {
       return;
     }
 
     if (message.type === "intent" && message.intent?.type === "move") {
       currentPlayer.intent = normalizeDirection(message.intent.dir);
+      broadcastToPeers({
+        type: "intent_replicate",
+        origin: COORDINATOR_ID,
+        userId,
+        intent: {
+          dir: { ...currentPlayer.intent }
+        }
+      });
       return;
     }
 
     if (message.type === "extras_update") {
-      currentPlayer.extras = {
-        ...currentPlayer.extras,
-        mood: sanitizeMood(message.extras?.mood)
-      };
+      currentPlayer.extras = sanitizeExtras(message.extras, currentPlayer.extras);
+
+      broadcastToPeers({
+        type: "extras_replicate",
+        origin: COORDINATOR_ID,
+        userId,
+        extras: { ...currentPlayer.extras }
+      });
+
       broadcastState();
     }
   });
 
   socket.on("close", () => {
-    removePlayerIfCurrent(userId, socket);
+    removeLocalPlayerIfCurrent(userId, socket);
   });
 
   socket.on("error", () => {
-    removePlayerIfCurrent(userId, socket);
+    removeLocalPlayerIfCurrent(userId, socket);
   });
+});
+
+peerWss.on("connection", (socket) => {
+  attachPeerSocket(socket, "inbound");
+  sendPeerHello(socket);
 });
 
 let lastTick = Date.now();
@@ -295,19 +783,28 @@ setInterval(() => {
   const deltaMs = now - lastTick;
   lastTick = now;
 
-  let hasMovement = false;
+  let changed = false;
 
   for (const player of players.values()) {
     if (updatePlayerPosition(player, deltaMs)) {
-      hasMovement = true;
+      changed = true;
     }
   }
 
-  if (hasMovement) {
+  if (changed) {
     broadcastState();
   }
-}, Math.max(16, Math.floor(1000 / TICK_RATE)));
+}, Math.max(16, Math.floor(1000 / TICK_RATE))).unref();
 
-server.listen(PORT, () => {
-  console.log(`Coordinator listening on http://localhost:${PORT}`);
+setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();
+setInterval(refreshPeerDirectory, PEER_DISCOVERY_INTERVAL_MS).unref();
+
+publicServer.listen(PUBLIC_PORT, async () => {
+  console.log(`Coordinator ${COORDINATOR_ID} public WS listening on http://localhost:${PUBLIC_PORT}`);
+  await sendHeartbeat();
+});
+
+peerServer.listen(PEER_PORT, async () => {
+  console.log(`Coordinator ${COORDINATOR_ID} peer WS listening on http://localhost:${PEER_PORT}`);
+  await refreshPeerDirectory();
 });

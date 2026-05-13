@@ -36,6 +36,11 @@
           <button id="logout-button" class="button button--ghost" style="padding: 5px 10px; min-height: auto;">Salir</button>
         </header>
         <div id="connection-status" class="status-badge status-badge--connecting">Conectando...</div>
+        <div style="margin-top: 12px; display: grid; gap: 6px;">
+          <div class="panel__kicker" style="font-size: 0.8rem;">Coordinador actual</div>
+          <div id="coordinator-id" style="font-family: 'Orbitron', 'Rajdhani', sans-serif; letter-spacing: 0.08em;">Sin asignar</div>
+          <div id="coordinator-url" style="color: var(--muted); word-break: break-word;">Esperando asignacion...</div>
+        </div>
         <ul id="players-list" class="players-list" style="margin-top: 15px;"></ul>
       </article>
 

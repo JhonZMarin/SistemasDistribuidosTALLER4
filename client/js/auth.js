@@ -65,6 +65,34 @@ async function sendAuthRequest(path, payload) {
     }
 }
 
+async function requestCoordinatorAssignment() {
+    try {
+        const response = await fetch(buildAuthUrl("/coordinator"));
+        const data = await readJsonSafely(response);
+
+        if (response.ok && data?.coordinatorId && data?.publicUrl) {
+            return {
+                ok: true,
+                status: response.status,
+                coordinatorId: String(data.coordinatorId).trim(),
+                publicUrl: String(data.publicUrl).trim().replace(/\/+$/, "")
+            };
+        }
+
+        return {
+            ok: false,
+            status: response.status,
+            error: data?.error || "coordinator_lookup_failed"
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            status: 0,
+            error: "coordinator_lookup_failed"
+        };
+    }
+}
+
 async function register(username, password) {
     const validation = validateCredentials(username, password);
     if (!validation.ok) return { ok: false, status: 400, message: validation.message };
@@ -391,3 +419,4 @@ document.addEventListener("DOMContentLoaded", bindAuthPage);
 
 window.getStoredToken = () => localStorage.getItem(AUTH_STORAGE_KEYS.token);
 window.clearStoredSession = clearSession;
+window.requestCoordinatorAssignment = requestCoordinatorAssignment;

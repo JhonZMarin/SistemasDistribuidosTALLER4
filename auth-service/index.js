@@ -51,14 +51,33 @@ function readPositiveInteger(name, fallback) {
   return value;
 }
 
+function normalizeBaseUrl(url) {
+  return String(url || "").trim().replace(/\/+$/, "");
+}
+
+function isWebSocketUrl(url) {
+  return /^wss?:\/\//i.test(url);
+}
+
+function toNonNegativeInteger(value) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const normalized = Math.trunc(value);
+  return normalized >= 0 ? normalized : null;
+}
+
 const PORT = readPort();
 const JWT_SECRET = readRequiredEnv("JWT_SECRET", { minLength: 32 });
 const JWT_EXPIRES_IN = readOptionalEnv("JWT_EXPIRES_IN") || "1h";
 const GOOGLE_CLIENT_ID = readOptionalEnv("GOOGLE_CLIENT_ID");
 const PASSWORD_HASH_ITERATIONS = readPositiveInteger("PASSWORD_HASH_ITERATIONS", 120000);
+const HEARTBEAT_TIMEOUT_MS = readPositiveInteger("HEARTBEAT_TIMEOUT_MS", 6000);
 const USERNAME_PATTERN = /^[A-Za-z0-9_]+$/;
 
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+const coordinatorRegistry = new Map();
 const db = new DatabaseSync(path.join(__dirname, "users.db"));
 
 db.exec(`
@@ -76,7 +95,7 @@ db.exec(`
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: "4kb" }));
+app.use(express.json({ limit: "8kb" }));
 
 function emitToken(user) {
   return jwt.sign(
@@ -183,13 +202,115 @@ function insertGoogleUser(username, googleSub, email) {
   ).run(username, googleSub, email);
 }
 
+function pruneDeadCoordinators() {
+  const now = Date.now();
+
+  for (const [coordinatorId, entry] of coordinatorRegistry.entries()) {
+    if ((now - entry.lastSeen) > HEARTBEAT_TIMEOUT_MS) {
+      coordinatorRegistry.delete(coordinatorId);
+    }
+  }
+}
+
+function listAliveCoordinators() {
+  pruneDeadCoordinators();
+  return Array.from(coordinatorRegistry.values()).map((entry) => ({ ...entry }));
+}
+
+function validateHeartbeatPayload(body) {
+  const coordinatorId = String(body?.coordinatorId || "").trim();
+  const publicUrl = normalizeBaseUrl(body?.publicUrl);
+  const peerUrl = normalizeBaseUrl(body?.peerUrl);
+  const connectedPlayers = toNonNegativeInteger(Number(body?.connectedPlayers));
+  const uptime = toNonNegativeInteger(Number(body?.uptime));
+
+  if (!coordinatorId) {
+    return { ok: false, error: "coordinatorId requerido" };
+  }
+
+  if (!isWebSocketUrl(publicUrl)) {
+    return { ok: false, error: "publicUrl invalida" };
+  }
+
+  if (!isWebSocketUrl(peerUrl)) {
+    return { ok: false, error: "peerUrl invalida" };
+  }
+
+  if (connectedPlayers === null) {
+    return { ok: false, error: "connectedPlayers invalido" };
+  }
+
+  if (uptime === null) {
+    return { ok: false, error: "uptime invalido" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      coordinatorId,
+      publicUrl,
+      peerUrl,
+      connectedPlayers,
+      uptime
+    }
+  };
+}
+
 app.get("/", (_request, response) => {
+  const coordinators = listAliveCoordinators();
+
   response.json({
     service: "auth-service",
     status: "ok",
     googleAuthEnabled: Boolean(googleClient),
-    routes: ["/register", "/login", "/auth/google"]
+    registeredCoordinators: coordinators.length,
+    routes: ["/register", "/login", "/auth/google", "/heartbeat", "/coordinator", "/peers"]
   });
+});
+
+app.post("/heartbeat", (request, response) => {
+  const validation = validateHeartbeatPayload(request.body);
+
+  if (!validation.ok) {
+    return response.status(400).json({ error: validation.error });
+  }
+
+  coordinatorRegistry.set(validation.value.coordinatorId, {
+    ...validation.value,
+    lastSeen: Date.now()
+  });
+
+  return response.status(200).json({ ok: true });
+});
+
+app.get("/coordinator", (_request, response) => {
+  const coordinators = listAliveCoordinators();
+
+  if (!coordinators.length) {
+    return response.status(503).json({ error: "no_coordinators_available" });
+  }
+
+  let selected = coordinators[0];
+
+  for (const coordinator of coordinators) {
+    if (coordinator.connectedPlayers < selected.connectedPlayers) {
+      selected = coordinator;
+    }
+  }
+
+  return response.status(200).json({
+    coordinatorId: selected.coordinatorId,
+    publicUrl: selected.publicUrl
+  });
+});
+
+app.get("/peers", (_request, response) => {
+  const peers = listAliveCoordinators().map((coordinator) => ({
+    coordinatorId: coordinator.coordinatorId,
+    peerUrl: coordinator.peerUrl
+  }));
+
+  return response.status(200).json({ peers });
 });
 
 app.post("/register", async (request, response) => {
@@ -337,6 +458,9 @@ app.post("/auth/google", async (request, response) => {
     return response.status(500).json({ error: "internal" });
   }
 });
+
+const cleanupIntervalMs = Math.max(1000, Math.floor(HEARTBEAT_TIMEOUT_MS / 2));
+setInterval(pruneDeadCoordinators, cleanupIntervalMs).unref();
 
 app.listen(PORT, () => {
   console.log(`Auth service listening on http://localhost:${PORT}`);
