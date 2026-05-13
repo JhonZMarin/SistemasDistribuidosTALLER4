@@ -12,6 +12,19 @@ function buildAuthUrl(path) {
     return `${window.getAuthBaseUrl()}${path}`;
 }
 
+function buildAuthHeaders(includeJsonContentType = false) {
+    const headers = {
+        "Accept": "application/json",
+        "ngrok-skip-browser-warning": "1"
+    };
+
+    if (includeJsonContentType) {
+        headers["Content-Type"] = "application/json";
+    }
+
+    return headers;
+}
+
 async function readJsonSafely(response) {
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("application/json")) return null;
@@ -54,7 +67,7 @@ async function sendAuthRequest(path, payload) {
     try {
         const response = await fetch(buildAuthUrl(path), {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: buildAuthHeaders(true),
             body: JSON.stringify(payload)
         });
         const data = await readJsonSafely(response);
@@ -71,6 +84,7 @@ async function requestCoordinatorAssignment() {
 
     try {
         const response = await fetch(buildAuthUrl("/coordinator"), {
+            headers: buildAuthHeaders(false),
             signal: controller.signal
         });
         const data = await readJsonSafely(response);
