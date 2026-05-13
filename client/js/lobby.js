@@ -79,6 +79,13 @@ function scheduleReconnect(delayMs = 1500) {
 async function resolveCoordinator() {
     setConnectionStatus("Resolviendo coordinador...", "connecting");
 
+    if (typeof window.requestCoordinatorAssignment !== "function") {
+        currentCoordinator = null;
+        setCoordinatorMeta(null);
+        setConnectionStatus("El cliente cargo una version vieja. Recarga la pagina.", "error");
+        return null;
+    }
+
     const assignment = await window.requestCoordinatorAssignment();
 
     if (!assignment.ok) {
@@ -87,6 +94,8 @@ async function resolveCoordinator() {
 
         if (assignment.status === 503 || assignment.error === "no_coordinators_available") {
             setConnectionStatus("No hay coordinadores vivos disponibles.", "error");
+        } else if (assignment.error === "coordinator_lookup_timeout") {
+            setConnectionStatus("La consulta al auth expiro. Intenta de nuevo.", "error");
         } else {
             setConnectionStatus("No se pudo consultar el coordinador.", "error");
         }
@@ -134,7 +143,16 @@ async function connectThroughDirectory() {
     window.currentGameState = { players: [] };
     updatePlayersUI([]);
 
-    const coordinator = await resolveCoordinator();
+    let coordinator;
+
+    try {
+        coordinator = await resolveCoordinator();
+    } catch (error) {
+        setConnectionStatus("Error interno del lobby. Recargando asignacion...", "error");
+        scheduleReconnect(2000);
+        return;
+    }
+
     if (!coordinator) {
         scheduleReconnect(2000);
         return;

@@ -43,6 +43,11 @@ const runtimeConfig = Object.freeze({
 const port = readPort();
 const app = express();
 
+app.use((_request, response, next) => {
+  response.set("Cache-Control", "no-store");
+  next();
+});
+
 app.get("/js/runtime-config.js", (_request, response) => {
   response.type("application/javascript");
   response.send(`window.RUNTIME_CONFIG = Object.freeze(${JSON.stringify(runtimeConfig)});\n`);

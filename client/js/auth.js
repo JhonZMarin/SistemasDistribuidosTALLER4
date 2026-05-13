@@ -66,8 +66,13 @@ async function sendAuthRequest(path, payload) {
 }
 
 async function requestCoordinatorAssignment() {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
     try {
-        const response = await fetch(buildAuthUrl("/coordinator"));
+        const response = await fetch(buildAuthUrl("/coordinator"), {
+            signal: controller.signal
+        });
         const data = await readJsonSafely(response);
 
         if (response.ok && data?.coordinatorId && data?.publicUrl) {
@@ -82,14 +87,16 @@ async function requestCoordinatorAssignment() {
         return {
             ok: false,
             status: response.status,
-            error: data?.error || "coordinator_lookup_failed"
+                error: data?.error || "coordinator_lookup_failed"
         };
     } catch (error) {
         return {
             ok: false,
             status: 0,
-            error: "coordinator_lookup_failed"
+            error: error?.name === "AbortError" ? "coordinator_lookup_timeout" : "coordinator_lookup_failed"
         };
+    } finally {
+        window.clearTimeout(timeoutId);
     }
 }
 
