@@ -74,11 +74,14 @@ const JWT_EXPIRES_IN = readOptionalEnv("JWT_EXPIRES_IN") || "1h";
 const GOOGLE_CLIENT_ID = readOptionalEnv("GOOGLE_CLIENT_ID");
 const PASSWORD_HASH_ITERATIONS = readPositiveInteger("PASSWORD_HASH_ITERATIONS", 120000);
 const HEARTBEAT_TIMEOUT_MS = readPositiveInteger("HEARTBEAT_TIMEOUT_MS", 6000);
+const PUBLIC_URL_PROBE_INTERVAL_MS = readPositiveInteger("PUBLIC_URL_PROBE_INTERVAL_MS", 3000);
+const PUBLIC_URL_PROBE_TIMEOUT_MS = readPositiveInteger("PUBLIC_URL_PROBE_TIMEOUT_MS", 2000);
 const USERNAME_PATTERN = /^[A-Za-z0-9_]+$/;
 
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const coordinatorRegistry = new Map();
 const db = new DatabaseSync(path.join(__dirname, "users.db"));
+let publicUrlProbeInFlight = false;
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -214,7 +217,97 @@ function pruneDeadCoordinators() {
 
 function listAliveCoordinators() {
   pruneDeadCoordinators();
-  return Array.from(coordinatorRegistry.values()).map((entry) => ({ ...entry }));
+  return Array.from(coordinatorRegistry.values())
+    .filter((entry) => entry.publicReachable !== false)
+    .map((entry) => ({ ...entry }));
+}
+
+function toHttpProbeUrl(publicUrl) {
+  const normalized = normalizeBaseUrl(publicUrl);
+
+  if (normalized.startsWith("ws://")) {
+    return `http://${normalized.slice(5)}`;
+  }
+
+  if (normalized.startsWith("wss://")) {
+    return `https://${normalized.slice(6)}`;
+  }
+
+  return "";
+}
+
+async function probeCoordinatorPublicUrl(entry) {
+  const probeUrl = toHttpProbeUrl(entry.publicUrl);
+
+  if (!probeUrl) {
+    return false;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PUBLIC_URL_PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(probeUrl, {
+      headers: {
+        Accept: "application/json",
+        "ngrok-skip-browser-warning": "1"
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("application/json")) {
+      return false;
+    }
+
+    const payload = await response.json();
+    const coordinatorId = String(payload?.coordinatorId || "").trim();
+
+    return payload?.service === "coordinador" && coordinatorId === entry.coordinatorId;
+  } catch (error) {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function probeCoordinatorDirectory() {
+  if (publicUrlProbeInFlight) {
+    return;
+  }
+
+  publicUrlProbeInFlight = true;
+
+  try {
+    pruneDeadCoordinators();
+
+    const snapshots = Array.from(coordinatorRegistry.entries()).map(([coordinatorId, entry]) => ([
+      coordinatorId,
+      { ...entry }
+    ]));
+
+    await Promise.all(snapshots.map(async ([coordinatorId, snapshot]) => {
+      const reachable = await probeCoordinatorPublicUrl(snapshot);
+      const current = coordinatorRegistry.get(coordinatorId);
+
+      if (!current) {
+        return;
+      }
+
+      if (current.publicUrl !== snapshot.publicUrl || current.lastSeen !== snapshot.lastSeen) {
+        return;
+      }
+
+      current.publicReachable = reachable;
+      current.lastPublicCheck = Date.now();
+    }));
+  } finally {
+    publicUrlProbeInFlight = false;
+  }
 }
 
 function validateHeartbeatPayload(body) {
@@ -275,9 +368,14 @@ app.post("/heartbeat", (request, response) => {
     return response.status(400).json({ error: validation.error });
   }
 
+  const previous = coordinatorRegistry.get(validation.value.coordinatorId);
+  const publicUrlChanged = previous?.publicUrl !== validation.value.publicUrl;
+
   coordinatorRegistry.set(validation.value.coordinatorId, {
     ...validation.value,
     pendingAssignments: 0,
+    publicReachable: publicUrlChanged ? true : (previous?.publicReachable ?? true),
+    lastPublicCheck: publicUrlChanged ? 0 : (previous?.lastPublicCheck ?? 0),
     lastSeen: Date.now()
   });
 
@@ -470,6 +568,11 @@ app.post("/auth/google", async (request, response) => {
 
 const cleanupIntervalMs = Math.max(1000, Math.floor(HEARTBEAT_TIMEOUT_MS / 2));
 setInterval(pruneDeadCoordinators, cleanupIntervalMs).unref();
+setInterval(() => {
+  probeCoordinatorDirectory().catch((error) => {
+    console.error("coordinator probe failed:", error);
+  });
+}, PUBLIC_URL_PROBE_INTERVAL_MS).unref();
 
 app.listen(PORT, () => {
   console.log(`Auth service listening on http://localhost:${PORT}`);

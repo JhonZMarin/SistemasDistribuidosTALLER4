@@ -9,6 +9,8 @@ let reconnectTimerId = null;
 let manualLogout = false;
 let currentCoordinator = null;
 const COORDINATOR_FAILOVER_DELAY_MS = 7000;
+const FAILED_COORDINATOR_AVOID_MS = 12000;
+let lastFailedCoordinator = null;
 
 function setConnectionStatus(message, variant) {
     const element = document.getElementById("connection-status");
@@ -36,6 +38,46 @@ function clearReconnectTimer() {
     if (reconnectTimerId !== null) {
         clearTimeout(reconnectTimerId);
         reconnectTimerId = null;
+    }
+}
+
+function rememberFailedCoordinator(coordinator) {
+    if (!coordinator?.coordinatorId || !coordinator?.publicUrl) {
+        return;
+    }
+
+    lastFailedCoordinator = {
+        coordinatorId: coordinator.coordinatorId,
+        publicUrl: coordinator.publicUrl,
+        failedAt: Date.now()
+    };
+}
+
+function shouldAvoidCoordinator(coordinator) {
+    if (!coordinator || !lastFailedCoordinator) {
+        return false;
+    }
+
+    if (
+        coordinator.coordinatorId !== lastFailedCoordinator.coordinatorId
+        && coordinator.publicUrl !== lastFailedCoordinator.publicUrl
+    ) {
+        return false;
+    }
+
+    return (Date.now() - lastFailedCoordinator.failedAt) < FAILED_COORDINATOR_AVOID_MS;
+}
+
+function clearFailedCoordinator(coordinator) {
+    if (!lastFailedCoordinator || !coordinator) {
+        return;
+    }
+
+    if (
+        coordinator.coordinatorId === lastFailedCoordinator.coordinatorId
+        || coordinator.publicUrl === lastFailedCoordinator.publicUrl
+    ) {
+        lastFailedCoordinator = null;
     }
 }
 
@@ -106,6 +148,13 @@ async function resolveCoordinator() {
 
     currentCoordinator = assignment;
     setCoordinatorMeta(assignment);
+
+    if (shouldAvoidCoordinator(assignment)) {
+        currentCoordinator = null;
+        setConnectionStatus("Esperando que el auth retire el coordinador caido...", "connecting");
+        return null;
+    }
+
     return assignment;
 }
 
@@ -177,6 +226,7 @@ async function connectThroughDirectory() {
 
         if (msg.type === "welcome") {
             myUserId = msg.you.userId;
+            clearFailedCoordinator(coordinator);
             setCoordinatorMeta({
                 coordinatorId: msg.coordinatorId || coordinator.coordinatorId,
                 publicUrl: coordinator.publicUrl
@@ -199,6 +249,7 @@ async function connectThroughDirectory() {
     ws.onclose = () => {
         if (socket !== ws) return;
 
+        rememberFailedCoordinator(coordinator);
         detachSocket();
         destroyGame();
         setConnectionStatus("Conexion perdida. Esperando failover del coordinador...", "connecting");
