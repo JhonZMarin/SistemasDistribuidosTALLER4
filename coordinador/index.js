@@ -61,6 +61,20 @@ function normalizeWebSocketBaseUrl(url) {
   return normalized;
 }
 
+function toHttpBaseUrl(url) {
+  const normalized = normalizeBaseUrl(url);
+
+  if (normalized.startsWith("ws://")) {
+    return `http://${normalized.slice(5)}`;
+  }
+
+  if (normalized.startsWith("wss://")) {
+    return `https://${normalized.slice(6)}`;
+  }
+
+  return normalized;
+}
+
 const PUBLIC_PORT = readIntegerEnv("PORT", 5000);
 const PEER_PORT = readIntegerEnv("PEER_PORT", PUBLIC_PORT + 1000);
 const JWT_SECRET = readRequiredEnv("JWT_SECRET", { minLength: 32 });
@@ -81,6 +95,7 @@ const PLAYER_SPEED = readIntegerEnv("PLAYER_SPEED", 220);
 const TICK_RATE = readIntegerEnv("TICK_RATE", 20);
 const HEARTBEAT_INTERVAL_MS = readIntegerEnv("HEARTBEAT_INTERVAL_MS", 2000);
 const PEER_DISCOVERY_INTERVAL_MS = readIntegerEnv("PEER_DISCOVERY_INTERVAL_MS", 2000);
+const PEER_SNAPSHOT_INTERVAL_MS = readIntegerEnv("PEER_SNAPSHOT_INTERVAL_MS", 2000);
 
 const WORLD = Object.freeze({
   width: WORLD_WIDTH,
@@ -180,6 +195,24 @@ function getLocalPlayerCount() {
   return localSockets.size;
 }
 
+function areDirectionsEqual(left, right) {
+  return left?.x === right?.x && left?.y === right?.y;
+}
+
+function areExtrasEqual(left, right) {
+  const leftEntries = Object.entries(left || {}).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+  const rightEntries = Object.entries(right || {}).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+
+  if (leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+
+  return leftEntries.every(([leftKey, leftValue], index) => {
+    const [rightKey, rightValue] = rightEntries[index];
+    return leftKey === rightKey && leftValue === rightValue;
+  });
+}
+
 function serializePlayer(player) {
   return {
     userId: player.userId,
@@ -189,6 +222,20 @@ function serializePlayer(player) {
     y: player.y,
     extras: { ...player.extras },
     coordinatorId: player.ownerCoordinatorId
+  };
+}
+
+function serializePlayerForPeer(player) {
+  return {
+    userId: player.userId,
+    username: player.username,
+    provider: player.provider,
+    x: player.x,
+    y: player.y,
+    extras: { ...player.extras },
+    intent: {
+      dir: { ...player.intent }
+    }
   };
 }
 
@@ -243,13 +290,17 @@ function buildPlayerJoinedMessage(player) {
   return {
     type: "player_joined",
     origin: COORDINATOR_ID,
-    userId: player.userId,
-    username: player.username,
-    provider: player.provider,
-    x: player.x,
-    y: player.y,
-    extras: { ...player.extras },
-    intent: { dir: { ...player.intent } }
+    ...serializePlayerForPeer(player)
+  };
+}
+
+function buildPlayersSnapshotMessage() {
+  return {
+    type: "players_snapshot",
+    origin: COORDINATOR_ID,
+    players: Array.from(players.values())
+      .filter((player) => player.ownerCoordinatorId === COORDINATOR_ID)
+      .map(serializePlayerForPeer)
   };
 }
 
@@ -313,6 +364,20 @@ function upsertRemotePlayer(message) {
     localSocket: null
   };
 
+  if (
+    existing
+    && existing.userId === nextPlayer.userId
+    && existing.username === nextPlayer.username
+    && existing.provider === nextPlayer.provider
+    && existing.x === nextPlayer.x
+    && existing.y === nextPlayer.y
+    && existing.ownerCoordinatorId === nextPlayer.ownerCoordinatorId
+    && areDirectionsEqual(existing.intent, nextPlayer.intent)
+    && areExtrasEqual(existing.extras, nextPlayer.extras)
+  ) {
+    return false;
+  }
+
   players.set(userId, nextPlayer);
   return true;
 }
@@ -325,7 +390,13 @@ function applyRemoteIntent(message) {
     return false;
   }
 
-  player.intent = normalizeDirection(message.intent?.dir);
+  const nextIntent = normalizeDirection(message.intent?.dir);
+
+  if (areDirectionsEqual(player.intent, nextIntent)) {
+    return false;
+  }
+
+  player.intent = nextIntent;
   return true;
 }
 
@@ -337,9 +408,59 @@ function applyRemoteExtras(message) {
     return false;
   }
 
-  player.extras = sanitizeExtras(message.extras, player.extras);
+  const nextExtras = sanitizeExtras(message.extras, player.extras);
+
+  if (areExtrasEqual(player.extras, nextExtras)) {
+    return false;
+  }
+
+  player.extras = nextExtras;
 
   return true;
+}
+
+function applyRemotePlayersSnapshot(message) {
+  const ownerCoordinatorId = String(message.origin || "").trim();
+
+  if (!ownerCoordinatorId || ownerCoordinatorId === COORDINATOR_ID) {
+    return false;
+  }
+
+  const remotePlayers = Array.isArray(message.players) ? message.players : [];
+  const visibleUserIds = new Set();
+  let changed = false;
+
+  for (const remotePlayer of remotePlayers) {
+    const userId = String(remotePlayer?.userId || "").trim();
+
+    if (!userId) {
+      continue;
+    }
+
+    visibleUserIds.add(userId);
+
+    if (upsertRemotePlayer({
+      ...remotePlayer,
+      origin: ownerCoordinatorId
+    })) {
+      changed = true;
+    }
+  }
+
+  for (const [userId, player] of players.entries()) {
+    if (player.ownerCoordinatorId !== ownerCoordinatorId) {
+      continue;
+    }
+
+    if (visibleUserIds.has(userId)) {
+      continue;
+    }
+
+    players.delete(userId);
+    changed = true;
+  }
+
+  return changed;
 }
 
 function updatePlayerPosition(player, deltaMs) {
@@ -371,17 +492,37 @@ function updatePlayerPosition(player, deltaMs) {
 }
 
 function syncLocalPlayersToPeer(socket) {
-  for (const player of players.values()) {
-    if (player.ownerCoordinatorId !== COORDINATOR_ID) {
-      continue;
-    }
-
-    if (socket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    socket.send(JSON.stringify(buildPlayerJoinedMessage(player)));
+  if (socket.readyState !== WebSocket.OPEN) {
+    return;
   }
+
+  socket.send(JSON.stringify(buildPlayersSnapshotMessage()));
+}
+
+function broadcastSnapshotToPeers() {
+  if (!peerConnections.size) {
+    return;
+  }
+
+  broadcastToPeers(buildPlayersSnapshotMessage());
+}
+
+function listVisiblePeers() {
+  return Array.from(peerDirectory.values())
+    .map((peer) => {
+      const peerConnection = peerConnections.get(peer.coordinatorId);
+
+      return {
+        coordinatorId: peer.coordinatorId,
+        publicUrl: peer.publicUrl,
+        directoryUrl: `${toHttpBaseUrl(peer.publicUrl)}/peers`,
+        peerUrl: peer.peerUrl,
+        connectedPlayers: peer.connectedPlayers,
+        connected: Boolean(peerConnection),
+        connectedAt: peerConnection?.connectedAt || null
+      };
+    })
+    .sort((left, right) => left.coordinatorId.localeCompare(right.coordinatorId));
 }
 
 function registerPeerConnection(socket, peerId, direction) {
@@ -501,6 +642,11 @@ function handlePeerReplicationMessage(socket, message) {
         broadcastState();
       }
       break;
+    case "players_snapshot":
+      if (applyRemotePlayersSnapshot(message)) {
+        broadcastState();
+      }
+      break;
     default:
       break;
   }
@@ -594,6 +740,7 @@ async function refreshPeerDirectory() {
 
     for (const peer of peers) {
       const peerId = String(peer?.coordinatorId || "").trim();
+      const publicUrl = normalizeBaseUrl(peer?.publicUrl);
       const peerUrl = normalizeBaseUrl(peer?.peerUrl);
 
       if (!peerId || peerId === COORDINATOR_ID || !/^wss?:\/\//i.test(peerUrl)) {
@@ -603,7 +750,11 @@ async function refreshPeerDirectory() {
       visiblePeerIds.add(peerId);
       peerDirectory.set(peerId, {
         coordinatorId: peerId,
-        peerUrl
+        publicUrl,
+        peerUrl,
+        connectedPlayers: Number.isFinite(Number(peer?.connectedPlayers))
+          ? Math.max(0, Math.trunc(Number(peer.connectedPlayers)))
+          : 0
       });
 
       connectToPeer({ coordinatorId: peerId, peerUrl });
@@ -634,7 +785,16 @@ publicApp.get("/", (_request, response) => {
     connectedPlayers: getLocalPlayerCount(),
     replicatedPlayers: players.size,
     peerConnections: Array.from(peerConnections.keys()),
+    routes: ["/", "/connect", "/peers"],
     world: WORLD
+  });
+});
+
+publicApp.get("/peers", (_request, response) => {
+  response.json({
+    service: "coordinador",
+    coordinatorId: COORDINATOR_ID,
+    peers: listVisiblePeers()
   });
 });
 
@@ -798,6 +958,7 @@ setInterval(() => {
 
 setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();
 setInterval(refreshPeerDirectory, PEER_DISCOVERY_INTERVAL_MS).unref();
+setInterval(broadcastSnapshotToPeers, PEER_SNAPSHOT_INTERVAL_MS).unref();
 
 publicServer.listen(PUBLIC_PORT, async () => {
   console.log(`Coordinator ${COORDINATOR_ID} public WS listening on http://localhost:${PUBLIC_PORT}`);

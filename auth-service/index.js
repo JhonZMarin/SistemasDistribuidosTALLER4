@@ -414,7 +414,9 @@ app.get("/coordinator", (_request, response) => {
 app.get("/peers", (_request, response) => {
   const peers = listAliveCoordinators().map((coordinator) => ({
     coordinatorId: coordinator.coordinatorId,
-    peerUrl: coordinator.peerUrl
+    publicUrl: coordinator.publicUrl,
+    peerUrl: coordinator.peerUrl,
+    connectedPlayers: coordinator.connectedPlayers
   }));
 
   return response.status(200).json({ peers });
