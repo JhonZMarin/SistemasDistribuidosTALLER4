@@ -277,6 +277,7 @@ app.post("/heartbeat", (request, response) => {
 
   coordinatorRegistry.set(validation.value.coordinatorId, {
     ...validation.value,
+    pendingAssignments: 0,
     lastSeen: Date.now()
   });
 
@@ -293,9 +294,17 @@ app.get("/coordinator", (_request, response) => {
   let selected = coordinators[0];
 
   for (const coordinator of coordinators) {
-    if (coordinator.connectedPlayers < selected.connectedPlayers) {
+    const coordinatorLoad = coordinator.connectedPlayers + (coordinator.pendingAssignments || 0);
+    const selectedLoad = selected.connectedPlayers + (selected.pendingAssignments || 0);
+
+    if (coordinatorLoad < selectedLoad) {
       selected = coordinator;
     }
+  }
+
+  const registryEntry = coordinatorRegistry.get(selected.coordinatorId);
+  if (registryEntry) {
+    registryEntry.pendingAssignments = (registryEntry.pendingAssignments || 0) + 1;
   }
 
   return response.status(200).json({

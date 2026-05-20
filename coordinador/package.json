@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
-    "start:coord-b": "powershell -ExecutionPolicy Bypass -File ./start-coord-b.ps1"
+    "start:coord-b": "powershell -ExecutionPolicy Bypass -File ./start-coord-b.ps1",
+    "start:coord-c": "powershell -ExecutionPolicy Bypass -File ./start-coord-c.ps1"
   },
   "dependencies": {
     "dotenv": "^17.2.3",

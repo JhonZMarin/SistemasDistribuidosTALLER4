@@ -1,0 +1,89 @@
+=5502 : El t‚rmino '=5502' no se reconoce como nombre de un cmdlet, funci¢n, archivo de script o programa ejecutable. 
+Compruebe si escribi¢ correctamente el nombre o, si incluy¢ una ruta de acceso, compruebe que dicha ruta es correcta e 
+int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 1
++ ='5502'; ='6502'; ='12345678901234567890123456789012'; ='coord-c'; =' ...
++ ~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=5502:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=6502 : El t‚rmino '=6502' no se reconoce como nombre de un cmdlet, funci¢n, archivo de script o programa ejecutable. 
+Compruebe si escribi¢ correctamente el nombre o, si incluy¢ una ruta de acceso, compruebe que dicha ruta es correcta e 
+int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 10
++ ='5502'; ='6502'; ='12345678901234567890123456789012'; ='coord-c'; =' ...
++          ~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=6502:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=12345678901234567890123456789012 : El t‚rmino '=12345678901234567890123456789012' no se reconoce como nombre de un 
+cmdlet, funci¢n, archivo de script o programa ejecutable. Compruebe si escribi¢ correctamente el nombre o, si incluy¢ 
+una ruta de acceso, compruebe que dicha ruta es correcta e int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 19
++ ='5502'; ='6502'; ='12345678901234567890123456789012'; ='coord-c'; =' ...
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=12345678901234567890123456789012:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=coord-c : El t‚rmino '=coord-c' no se reconoce como nombre de un cmdlet, funci¢n, archivo de script o programa 
+ejecutable. Compruebe si escribi¢ correctamente el nombre o, si incluy¢ una ruta de acceso, compruebe que dicha ruta 
+es correcta e int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 56
++ ... 02'; ='6502'; ='12345678901234567890123456789012'; ='coord-c'; ='http ...
++                                                        ~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=coord-c:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=http://127.0.0.1:4400 : El t‚rmino '=http://127.0.0.1:4400' no se reconoce como nombre de un cmdlet, funci¢n, archivo 
+de script o programa ejecutable. Compruebe si escribi¢ correctamente el nombre o, si incluy¢ una ruta de acceso, 
+compruebe que dicha ruta es correcta e int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 68
++ ... 1234567890123456789012'; ='coord-c'; ='http://127.0.0.1:4400'; ='ws:/ ...
++                                          ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=http://127.0.0.1:4400:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=ws://127.0.0.1:5502 : El t‚rmino '=ws://127.0.0.1:5502' no se reconoce como nombre de un cmdlet, funci¢n, archivo de 
+script o programa ejecutable. Compruebe si escribi¢ correctamente el nombre o, si incluy¢ una ruta de acceso, 
+compruebe que dicha ruta es correcta e int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 94
++ ...  ='coord-c'; ='http://127.0.0.1:4400'; ='ws://127.0.0.1:5502'; ='ws:/ ...
++                                            ~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=ws://127.0.0.1:5502:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=ws://127.0.0.1:6502 : El t‚rmino '=ws://127.0.0.1:6502' no se reconoce como nombre de un cmdlet, funci¢n, archivo de 
+script o programa ejecutable. Compruebe si escribi¢ correctamente el nombre o, si incluy¢ una ruta de acceso, 
+compruebe que dicha ruta es correcta e int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 118
++ ... 7.0.0.1:4400'; ='ws://127.0.0.1:5502'; ='ws://127.0.0.1:6502'; Set-Lo ...
++                                            ~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=ws://127.0.0.1:6502:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+node:events:496
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::5100
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\maico\OneDrive\Documentos\GitHub\SistemasDistribuidosTALLER4\coordinador\index.js:807:12)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1973:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 5100
+}
+
+Node.js v22.14.0

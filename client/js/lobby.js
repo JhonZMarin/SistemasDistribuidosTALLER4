@@ -8,6 +8,7 @@ let myUserId = null;
 let reconnectTimerId = null;
 let manualLogout = false;
 let currentCoordinator = null;
+const COORDINATOR_FAILOVER_DELAY_MS = 7000;
 
 function setConnectionStatus(message, variant) {
     const element = document.getElementById("connection-status");
@@ -200,8 +201,8 @@ async function connectThroughDirectory() {
 
         detachSocket();
         destroyGame();
-        setConnectionStatus("Conexion perdida. Reasignando coordinador...", "connecting");
-        scheduleReconnect(1200);
+        setConnectionStatus("Conexion perdida. Esperando failover del coordinador...", "connecting");
+        scheduleReconnect(COORDINATOR_FAILOVER_DELAY_MS);
     };
 }
 

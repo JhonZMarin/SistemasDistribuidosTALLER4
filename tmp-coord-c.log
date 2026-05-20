@@ -1,0 +1,2 @@
+◇ injected env (14) from .env // tip: ⌘ enable debugging { debug: true }
+Coordinator coord-a public WS listening on http://localhost:5000

@@ -1,0 +1,29 @@
+=4400 : El t‚rmino '=4400' no se reconoce como nombre de un cmdlet, funci¢n, archivo de script o programa ejecutable. 
+Compruebe si escribi¢ correctamente el nombre o, si incluy¢ una ruta de acceso, compruebe que dicha ruta es correcta e 
+int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 1
++ ='4400'; ='12345678901234567890123456789012'; ='1h'; Set-Location 'c: ...
++ ~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=4400:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=12345678901234567890123456789012 : El t‚rmino '=12345678901234567890123456789012' no se reconoce como nombre de un 
+cmdlet, funci¢n, archivo de script o programa ejecutable. Compruebe si escribi¢ correctamente el nombre o, si incluy¢ 
+una ruta de acceso, compruebe que dicha ruta es correcta e int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 10
++ ='4400'; ='12345678901234567890123456789012'; ='1h'; Set-Location 'c: ...
++          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=12345678901234567890123456789012:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=1h : El t‚rmino '=1h' no se reconoce como nombre de un cmdlet, funci¢n, archivo de script o programa ejecutable. 
+Compruebe si escribi¢ correctamente el nombre o, si incluy¢ una ruta de acceso, compruebe que dicha ruta es correcta e 
+int‚ntelo de nuevo.
+En l¡nea: 1 Car cter: 47
++ ='4400'; ='12345678901234567890123456789012'; ='1h'; Set-Location 'c: ...
++                                               ~~~~~
+    + CategoryInfo          : ObjectNotFound: (=1h:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+(node:3700) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)

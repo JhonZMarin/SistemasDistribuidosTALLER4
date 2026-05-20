@@ -1,0 +1,6 @@
+
+> taller4-auth-service@1.0.0 start
+> node --experimental-sqlite index.js
+
+◇ injected env (4) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+Auth service listening on http://localhost:4000
