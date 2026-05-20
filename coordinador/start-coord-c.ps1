@@ -31,7 +31,7 @@ $env:COORDINATOR_ID = "coord-c"
 
 # url nuevo cordinador
 $env:PUBLIC_WS_URL = "wss://breadless-keren-topfull.ngrok-free.dev"
-$env:PEER_WS_URL = "ws://localhost:5102"
+$env:PEER_WS_URL = "wss://breadless-keren-topfull.ngrok-free.dev/peer"
 
 Set-Location $PSScriptRoot
 node index.js

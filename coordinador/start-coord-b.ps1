@@ -29,7 +29,7 @@ $env:PORT = "5001"
 $env:PEER_PORT = "5101"
 $env:COORDINATOR_ID = "coord-b"
 $env:PUBLIC_WS_URL = "wss://darcy-finger-squelchingly.ngrok-free.dev"
-$env:PEER_WS_URL = "ws://localhost:5101"
+$env:PEER_WS_URL = "wss://darcy-finger-squelchingly.ngrok-free.dev/peer"
 
 Set-Location $PSScriptRoot
 node index.js

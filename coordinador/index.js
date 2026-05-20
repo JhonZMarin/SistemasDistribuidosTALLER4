@@ -61,6 +61,10 @@ function normalizeWebSocketBaseUrl(url) {
   return normalized;
 }
 
+function buildPeerWebSocketUrl(publicWsUrl) {
+  return `${normalizeWebSocketBaseUrl(publicWsUrl)}/peer`;
+}
+
 function toHttpBaseUrl(url) {
   const normalized = normalizeBaseUrl(url);
 
@@ -86,7 +90,7 @@ const PUBLIC_WS_URL = normalizeWebSocketBaseUrl(
   readOptionalEnv("PUBLIC_WS_URL") || `ws://localhost:${PUBLIC_PORT}`
 );
 const PEER_WS_URL = normalizeWebSocketBaseUrl(
-  readOptionalEnv("PEER_WS_URL") || `ws://localhost:${PEER_PORT}`
+  readOptionalEnv("PEER_WS_URL") || buildPeerWebSocketUrl(PUBLIC_WS_URL)
 );
 const WORLD_WIDTH = readIntegerEnv("WORLD_WIDTH", 800);
 const WORLD_HEIGHT = readIntegerEnv("WORLD_HEIGHT", 600);
@@ -785,7 +789,8 @@ publicApp.get("/", (_request, response) => {
     connectedPlayers: getLocalPlayerCount(),
     replicatedPlayers: players.size,
     peerConnections: Array.from(peerConnections.keys()),
-    routes: ["/", "/connect", "/peers"],
+    peerUrl: PEER_WS_URL,
+    routes: ["/", "/connect", "/peer", "/peers"],
     world: WORLD
   });
 });
@@ -809,6 +814,13 @@ peerApp.get("/", (_request, response) => {
 
 publicServer.on("upgrade", (request, socket, head) => {
   const { pathname, query } = parse(request.url || "", true);
+
+  if (pathname === "/peer") {
+    peerWss.handleUpgrade(request, socket, head, (webSocket) => {
+      peerWss.emit("connection", webSocket, request);
+    });
+    return;
+  }
 
   if (pathname !== "/connect") {
     socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
