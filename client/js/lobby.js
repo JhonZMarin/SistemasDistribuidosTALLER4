@@ -167,7 +167,12 @@ function ensureGame(worldConfig) {
         options: {
             worldWidth: worldConfig.width,
             worldHeight: worldConfig.height,
-            playerRadius: worldConfig.playerRadius
+            playerRadius: worldConfig.playerRadius,
+            walls: worldConfig.walls || [],
+            vents: worldConfig.vents || [],
+            vitals: worldConfig.vitals || null,
+            tasks: worldConfig.tasks || [],
+            emergencyButton: worldConfig.emergencyButton || null
         },
         onIntent: (intent) => {
             if (socket && socket.readyState === WebSocket.OPEN) {
@@ -226,6 +231,7 @@ async function connectThroughDirectory() {
 
         if (msg.type === "welcome") {
             myUserId = msg.you.userId;
+            window.currentWorldConfig = msg.world; // Guardar config para distance checks
             clearFailedCoordinator(coordinator);
             setCoordinatorMeta({
                 coordinatorId: msg.coordinatorId || coordinator.coordinatorId,
@@ -238,6 +244,20 @@ async function connectThroughDirectory() {
         if (msg.type === "state") {
             window.currentGameState = msg;
             updatePlayersUI(msg.players);
+            updateGameStateUI();
+            return;
+        }
+
+        if (msg.type === "chat_replicate") {
+            const chatBox = document.getElementById("chat-messages");
+            if (chatBox) {
+                const isMe = msg.userId === myUserId;
+                const nameStr = isMe ? 'Tú' : (msg.username || 'Desconocido');
+                const color = isMe ? 'var(--amber)' : 'var(--cyan)';
+                chatBox.innerHTML += `<div style="margin-bottom: 4px;"><strong style="color: ${color};">${nameStr}:</strong> ${msg.text}</div>`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+            return;
         }
     };
 
@@ -257,16 +277,239 @@ async function connectThroughDirectory() {
     };
 }
 
-window.updateMood = (emoji) => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        const currentExtras = window.currentGameState.players.find((player) => player.userId === myUserId)?.extras || {};
+document.addEventListener("DOMContentLoaded", () => {
+    const btnStart = document.getElementById("btn-start-game");
+    const btnKill = document.getElementById("btn-kill");
+    const btnVent = document.getElementById("btn-vent");
+    const btnTask = document.getElementById("btn-task");
+    const btnVitals = document.getElementById("btn-vitals");
+    const btnCallMeeting = document.getElementById("btn-call-meeting");
+    const btnVoteSkip = document.getElementById("btn-vote-skip");
+    const btnSendChat = document.getElementById("btn-send-chat");
+    const chatInput = document.getElementById("chat-input");
 
-        socket.send(JSON.stringify({
-            type: "extras_update",
-            extras: { ...currentExtras, mood: emoji }
-        }));
+    if (btnStart) {
+        btnStart.onclick = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "intent", intent: { type: "start_game" } }));
+            }
+        };
     }
-};
+
+    if (btnKill) {
+        btnKill.onclick = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "intent", intent: { type: "kill" } }));
+            }
+        };
+    }
+
+    if (btnVent) {
+        btnVent.onclick = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "intent", intent: { type: "vent" } }));
+            }
+        };
+    }
+
+    if (btnTask) {
+        btnTask.onclick = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "intent", intent: { type: "do_task" } }));
+            }
+        };
+    }
+
+    if (btnVitals) {
+        btnVitals.onclick = () => {
+            const modal = document.getElementById("vitals-modal");
+            const list = document.getElementById("vitals-list");
+            if (modal && list && window.currentGameState?.players) {
+                list.innerHTML = window.currentGameState.players.map(p => {
+                    const isDead = p.extras?.isGhost;
+                    const color = isDead ? "var(--danger)" : "var(--cyan)";
+                    const text = isDead ? "💀 MUERTO" : "💚 VIVO";
+                    return `
+                        <li class="players-list__item">
+                            <div class="players-list__content" style="display: flex; justify-content: space-between; width: 100%;">
+                                <span class="players-list__name">${p.username}</span>
+                                <span style="color: ${color}; font-weight: bold;">${text}</span>
+                            </div>
+                        </li>
+                    `;
+                }).join("");
+                modal.showModal();
+            }
+        };
+    }
+    if (btnCallMeeting) {
+        btnCallMeeting.onclick = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "intent", intent: { type: "call_meeting" } }));
+            }
+        };
+    }
+
+    if (btnVoteSkip) {
+        btnVoteSkip.onclick = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "intent", intent: { type: "vote", targetId: "skip" } }));
+                document.getElementById("voting-modal").close();
+            }
+        };
+    }
+
+    if (btnSendChat && chatInput) {
+        const sendChat = () => {
+            const text = chatInput.value.trim();
+            if (text && socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "intent", intent: { type: "chat", text } }));
+                chatInput.value = "";
+            }
+        };
+        btnSendChat.onclick = sendChat;
+        chatInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") sendChat();
+        });
+    }
+});
+function submitVote(targetId) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "intent", intent: { type: "vote", targetId } }));
+        document.getElementById("voting-modal").close();
+    }
+}
+window.submitVote = submitVote;
+
+function updateGameStateUI() {
+    const gameState = window.currentGameState?.gameState;
+    const statusEl = document.getElementById("game-status");
+    const lobbyControls = document.getElementById("lobby-controls");
+    const playingControls = document.getElementById("playing-controls");
+    const roleDisplay = document.getElementById("role-display");
+    const impostorActions = document.getElementById("impostor-actions");
+    const crewmateActions = document.getElementById("crewmate-actions");
+    const btnTask = document.getElementById("btn-task");
+    const btnVitals = document.getElementById("btn-vitals");
+    const btnCallMeeting = document.getElementById("btn-call-meeting");
+    const votingModal = document.getElementById("voting-modal");
+
+    if (!gameState || gameState.status === "lobby") {
+        if (statusEl) statusEl.textContent = "Estado: Lobby";
+        if (lobbyControls) lobbyControls.style.display = "block";
+        if (playingControls) playingControls.style.display = "none";
+        if (votingModal && votingModal.open) {
+            votingModal.close();
+            document.getElementById("chat-messages").innerHTML = ""; // Clear chat on end
+        }
+    } else if (gameState.status === "playing") {
+        if (statusEl) statusEl.textContent = "Estado: Jugando";
+        if (lobbyControls) lobbyControls.style.display = "none";
+        if (playingControls) playingControls.style.display = "flex";
+        if (votingModal && votingModal.open) {
+            votingModal.close();
+            document.getElementById("chat-messages").innerHTML = "";
+        }
+
+        const isImpostor = gameState.impostorId === myUserId;
+        const myPlayer = window.currentGameState?.players?.find(p => p.userId === myUserId);
+        const isGhost = myPlayer?.extras?.isGhost;
+        const globalTasks = gameState.globalTasksCompleted || 0;
+
+        if (roleDisplay) {
+            if (isGhost) {
+                roleDisplay.textContent = isImpostor ? "FANTASMA (Impostor)" : `FANTASMA (Progreso Global: ${globalTasks})`;
+                roleDisplay.style.color = "var(--muted)";
+            } else if (isImpostor) {
+                roleDisplay.textContent = "ROL: IMPOSTOR";
+                roleDisplay.style.color = "var(--danger)";
+            } else {
+                roleDisplay.textContent = `ROL: TRIPULANTE (Progreso Global: ${globalTasks})`;
+                roleDisplay.style.color = "var(--cyan)";
+            }
+        }
+
+        if (impostorActions) {
+            impostorActions.style.display = (isImpostor && !isGhost) ? "flex" : "none";
+        }
+        
+        if (crewmateActions) {
+            crewmateActions.style.display = (!isImpostor && !isGhost) ? "flex" : "none";
+        }
+
+        // Distance checks
+        let nearTask = false;
+        let nearVitals = false;
+        let nearEmergency = false;
+        if (myPlayer && window.currentWorldConfig) {
+            const wc = window.currentWorldConfig;
+            if (wc.tasks) {
+                nearTask = wc.tasks.some(t => Math.hypot((t.x + t.w/2) - myPlayer.x, (t.y + t.h/2) - myPlayer.y) <= 60);
+            }
+            if (wc.vitals) {
+                nearVitals = Math.hypot((wc.vitals.x + wc.vitals.w/2) - myPlayer.x, (wc.vitals.y + wc.vitals.h/2) - myPlayer.y) <= 80;
+            }
+            if (wc.emergencyButton) {
+                nearEmergency = Math.hypot((wc.emergencyButton.x + wc.emergencyButton.w/2) - myPlayer.x, (wc.emergencyButton.y + wc.emergencyButton.h/2) - myPlayer.y) <= 60;
+            }
+        }
+
+        if (btnTask) btnTask.style.display = nearTask && !isImpostor && !isGhost ? "block" : "none";
+        if (btnVitals) btnVitals.style.display = nearVitals ? "block" : "none";
+        if (btnCallMeeting) btnCallMeeting.style.display = nearEmergency && !isGhost ? "block" : "none";
+
+    } else if (gameState.status === "meeting") {
+        if (statusEl) statusEl.textContent = "Estado: Reunión Activa";
+        if (lobbyControls) lobbyControls.style.display = "none";
+        if (playingControls) playingControls.style.display = "flex";
+
+        const myPlayer = window.currentGameState?.players?.find(p => p.userId === myUserId);
+        const isGhost = myPlayer?.extras?.isGhost;
+
+        if (btnCallMeeting) btnCallMeeting.style.display = "none";
+        if (btnTask) btnTask.style.display = "none";
+        if (btnVitals) btnVitals.style.display = "none";
+
+        if (votingModal && !votingModal.open) {
+            // Render voting list
+            const caller = window.currentGameState.players.find(p => p.userId === gameState.meeting?.caller);
+            document.getElementById("meeting-caller").textContent = `Convocada por: ${caller ? caller.username : 'Desconocido'}`;
+            
+            const list = document.getElementById("voting-list");
+            list.innerHTML = window.currentGameState.players.filter(p => !p.extras?.isGhost).map(p => {
+                const isMe = p.userId === myUserId;
+                return `
+                    <li class="players-list__item" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" 
+                        onclick="${isGhost ? '' : `submitVote('${p.userId}')`}">
+                        <span>${p.username} ${isMe ? '(Tú)' : ''}</span>
+                        ${!isGhost ? '<span style="font-size: 0.8rem; color: var(--muted);">Votar</span>' : ''}
+                    </li>
+                `;
+            }).join("");
+
+            if (isGhost) {
+                document.getElementById("btn-vote-skip").style.display = "none";
+                const chatInput = document.getElementById("chat-input");
+                const btnSendChat = document.getElementById("btn-send-chat");
+                if (chatInput) { chatInput.disabled = true; chatInput.placeholder = "Los fantasmas no pueden chatear"; }
+                if (btnSendChat) btnSendChat.disabled = true;
+            } else {
+                document.getElementById("btn-vote-skip").style.display = "block";
+                const chatInput = document.getElementById("chat-input");
+                const btnSendChat = document.getElementById("btn-send-chat");
+                if (chatInput) { chatInput.disabled = false; chatInput.placeholder = "Mensaje..."; }
+                if (btnSendChat) btnSendChat.disabled = false;
+            }
+
+            votingModal.showModal();
+        }
+
+        if (votingModal && votingModal.open) {
+            const timeLeft = Math.max(0, Math.floor((gameState.meeting.endsAt - Date.now()) / 1000));
+            document.getElementById("meeting-timer").textContent = `Tiempo restante: ${timeLeft}s`;
+        }
+    }
+}
 
 function updatePlayersUI(players) {
     const list = document.getElementById("players-list");
@@ -279,15 +522,16 @@ function updatePlayersUI(players) {
 
     list.innerHTML = players.map((player) => {
         const badge = player.provider === "google" ? "G" : "L";
-        const mood = player.extras?.mood || "";
+        const isGhost = player.extras?.isGhost;
         const isCurrent = player.userId === myUserId;
+        const status = isGhost ? "👻 Muerto" : "Vivo";
 
         return `
-            <li class="players-list__item ${isCurrent ? "players-list__item--current" : ""}">
+            <li class="players-list__item ${isCurrent ? "players-list__item--current" : ""}" style="${isGhost ? 'opacity: 0.6;' : ''}">
                 <div class="players-list__avatar">${badge}</div>
                 <div class="players-list__content">
-                    <span class="players-list__name">${player.username} ${mood} ${isCurrent ? "(Tu)" : ""}</span>
-                    <span class="players-list__meta">Auth: ${player.provider} | Coord: ${player.coordinatorId || "n/a"}</span>
+                    <span class="players-list__name" style="${isGhost ? 'text-decoration: line-through;' : ''}">${player.username} ${isCurrent ? "(Tu)" : ""}</span>
+                    <span class="players-list__meta">Auth: ${player.provider} | Coord: ${player.coordinatorId || "n/a"} | ${status}</span>
                 </div>
             </li>
         `;

@@ -100,11 +100,33 @@ const TICK_RATE = readIntegerEnv("TICK_RATE", 20);
 const HEARTBEAT_INTERVAL_MS = readIntegerEnv("HEARTBEAT_INTERVAL_MS", 2000);
 const PEER_DISCOVERY_INTERVAL_MS = readIntegerEnv("PEER_DISCOVERY_INTERVAL_MS", 2000);
 const PEER_SNAPSHOT_INTERVAL_MS = readIntegerEnv("PEER_SNAPSHOT_INTERVAL_MS", 2000);
+const KILL_DISTANCE = 80;
 
 const WORLD = Object.freeze({
   width: WORLD_WIDTH,
   height: WORLD_HEIGHT,
-  playerRadius: PLAYER_RADIUS
+  playerRadius: PLAYER_RADIUS,
+  walls: [
+    { x: 100, y: 150, w: 250, h: 40 },
+    { x: 450, y: 150, w: 250, h: 40 },
+    { x: 100, y: 400, w: 250, h: 40 },
+    { x: 450, y: 400, w: 250, h: 40 },
+    { x: 380, y: 190, w: 40, h: 210 }
+  ],
+  vents: [
+    { id: 'vent1', x: 60, y: 60 },
+    { id: 'vent2', x: 740, y: 60 },
+    { id: 'vent3', x: 60, y: 540 },
+    { id: 'vent4', x: 740, y: 540 }
+  ],
+  vitals: { x: 380, y: 250, w: 80, h: 40 },
+  tasks: [
+    { id: 'task1', x: 150, y: 100, w: 40, h: 40 },
+    { id: 'task2', x: 600, y: 100, w: 40, h: 40 },
+    { id: 'task3', x: 150, y: 450, w: 40, h: 40 },
+    { id: 'task4', x: 600, y: 450, w: 40, h: 40 }
+  ],
+  emergencyButton: { x: 380, y: 150, w: 40, h: 40 }
 });
 
 const publicApp = express();
@@ -120,6 +142,13 @@ const localSockets = new Map();
 const peerDirectory = new Map();
 const peerConnections = new Map();
 const pendingOutboundPeerIds = new Set();
+
+let globalGameState = {
+  status: "lobby", // 'lobby' | 'playing' | 'meeting'
+  impostorId: null,
+  globalTasksCompleted: 0,
+  meeting: null // { caller: userId, votes: { [voterId]: targetId }, endsAt: timestamp }
+};
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -139,12 +168,10 @@ function hashString(value) {
 
 function createSpawnPoint(userId) {
   const hash = hashString(userId);
-  const horizontalSpan = Math.max(1, WORLD.width - (PLAYER_RADIUS * 2));
-  const verticalSpan = Math.max(1, WORLD.height - (PLAYER_RADIUS * 2));
-
+  // Zona segura: Cafetería (arriba, x: 300 a 500, y: 50 a 120)
   return {
-    x: PLAYER_RADIUS + (hash % horizontalSpan),
-    y: PLAYER_RADIUS + (Math.floor(hash / 97) % verticalSpan)
+    x: 300 + (hash % 200),
+    y: 50 + (Math.floor(hash / 97) % 70)
   };
 }
 
@@ -246,7 +273,8 @@ function serializePlayerForPeer(player) {
 function buildStatePayload() {
   return JSON.stringify({
     type: "state",
-    players: Array.from(players.values()).map(serializePlayer)
+    players: Array.from(players.values()).map(serializePlayer),
+    gameState: globalGameState
   });
 }
 
@@ -467,7 +495,33 @@ function applyRemotePlayersSnapshot(message) {
   return changed;
 }
 
+function checkWallCollision(cx, cy, radius) {
+  for (const wall of WORLD.walls) {
+    const testX = clamp(cx, wall.x, wall.x + wall.w);
+    const testY = clamp(cy, wall.y, wall.y + wall.h);
+    const distX = cx - testX;
+    const distY = cy - testY;
+    if ((distX * distX) + (distY * distY) < radius * radius) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function updatePlayerPosition(player, deltaMs) {
+  // Solo se puede mover si está en playing
+  if (player.extras?.isGhost || player.extras?.inVent || globalGameState.status !== "playing") {
+    // Ghosts might be able to move through walls, or we restrict them. 
+    // In Taller 4, ghosts are usually silenced but can move freely. Let's allow them to move.
+    if (!player.extras?.isGhost && (player.extras?.inVent || globalGameState.status !== "playing")) {
+       return false;
+    }
+    // Si hay reunión, ni los fantasmas se mueven
+    if (globalGameState.status === "meeting") {
+       return false;
+    }
+  }
+
   const direction = player.intent;
 
   if (!direction || (!direction.x && !direction.y)) {
@@ -480,18 +534,32 @@ function updatePlayerPosition(player, deltaMs) {
   }
 
   const distance = PLAYER_SPEED * (deltaMs / 1000);
-  const nextX = player.x + ((direction.x / vectorLength) * distance);
-  const nextY = player.y + ((direction.y / vectorLength) * distance);
+  let nextX = player.x + ((direction.x / vectorLength) * distance);
+  let nextY = player.y + ((direction.y / vectorLength) * distance);
 
-  const boundedX = clamp(nextX, PLAYER_RADIUS, WORLD.width - PLAYER_RADIUS);
-  const boundedY = clamp(nextY, PLAYER_RADIUS, WORLD.height - PLAYER_RADIUS);
+  nextX = clamp(nextX, PLAYER_RADIUS, WORLD.width - PLAYER_RADIUS);
+  nextY = clamp(nextY, PLAYER_RADIUS, WORLD.height - PLAYER_RADIUS);
 
-  if (boundedX === player.x && boundedY === player.y) {
+  // If not a ghost, check collisions
+  if (!player.extras?.isGhost) {
+    if (checkWallCollision(nextX, player.y, PLAYER_RADIUS)) {
+      nextX = player.x;
+    }
+    if (checkWallCollision(player.x, nextY, PLAYER_RADIUS)) {
+      nextY = player.y;
+    }
+    if (checkWallCollision(nextX, nextY, PLAYER_RADIUS)) {
+      nextX = player.x;
+      nextY = player.y;
+    }
+  }
+
+  if (nextX === player.x && nextY === player.y) {
     return false;
   }
 
-  player.x = boundedX;
-  player.y = boundedY;
+  player.x = nextX;
+  player.y = nextY;
   return true;
 }
 
@@ -649,6 +717,46 @@ function handlePeerReplicationMessage(socket, message) {
     case "players_snapshot":
       if (applyRemotePlayersSnapshot(message)) {
         broadcastState();
+      }
+      break;
+    case "global_state_replicate":
+      if (message.state) {
+        globalGameState = message.state;
+        broadcastState();
+      }
+      break;
+    case "eject_replicate":
+      const ejectedPlayer = players.get(message.targetId);
+      if (ejectedPlayer && ejectedPlayer.ownerCoordinatorId === COORDINATOR_ID) {
+        ejectedPlayer.extras = { ...ejectedPlayer.extras, isGhost: true };
+        broadcastToPeers({
+          type: "extras_replicate",
+          origin: COORDINATOR_ID,
+          userId: message.targetId,
+          extras: { ...ejectedPlayer.extras }
+        });
+        broadcastState();
+      }
+      break;
+    case "kill_replicate":
+      const victim = players.get(message.targetId);
+      if (victim && victim.ownerCoordinatorId === COORDINATOR_ID) {
+        victim.extras = { ...victim.extras, isGhost: true };
+        broadcastToPeers({
+          type: "extras_replicate",
+          origin: COORDINATOR_ID,
+          userId: message.targetId,
+          extras: { ...victim.extras }
+        });
+        broadcastState();
+      }
+      break;
+    case "chat_replicate":
+      const payloadStr = JSON.stringify(message);
+      for (const socket of localSockets.values()) {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(payloadStr);
+        }
       }
       break;
     default:
@@ -907,17 +1015,227 @@ publicWss.on("connection", (socket, _request, payload) => {
       return;
     }
 
-    if (message.type === "intent" && message.intent?.type === "move") {
-      currentPlayer.intent = normalizeDirection(message.intent.dir);
-      broadcastToPeers({
-        type: "intent_replicate",
-        origin: COORDINATOR_ID,
-        userId,
-        intent: {
-          dir: { ...currentPlayer.intent }
+    if (message.type === "intent") {
+      if (message.intent?.type === "move") {
+        currentPlayer.intent = normalizeDirection(message.intent.dir);
+        broadcastToPeers({
+          type: "intent_replicate",
+          origin: COORDINATOR_ID,
+          userId,
+          intent: {
+            dir: { ...currentPlayer.intent }
+          }
+        });
+        return;
+      }
+
+      if (message.intent?.type === "start_game" && globalGameState.status === "lobby") {
+        const allIds = Array.from(players.keys());
+        if (allIds.length > 0) {
+          globalGameState.status = "playing";
+          globalGameState.impostorId = allIds[Math.floor(Math.random() * allIds.length)];
+          globalGameState.globalTasksCompleted = 0;
+
+          // Reset everyone to cafeteria / middle
+          for (const p of players.values()) {
+             const hash = hashString(p.userId);
+             p.x = 300 + (hash % 200);
+             p.y = 50 + (Math.floor(hash / 97) % 70);
+             p.extras = { ...p.extras, isGhost: false, inVent: false };
+             if (p.ownerCoordinatorId === COORDINATOR_ID) {
+                broadcastToPeers({
+                  type: "extras_replicate",
+                  origin: COORDINATOR_ID,
+                  userId: p.userId,
+                  extras: { ...p.extras }
+                });
+             }
+          }
+
+          broadcastToPeers({
+            type: "global_state_replicate",
+            origin: COORDINATOR_ID,
+            state: globalGameState
+          });
+          broadcastState();
         }
-      });
-      return;
+        return;
+      }
+
+      if (message.intent?.type === "kill" && globalGameState.status === "playing" && globalGameState.impostorId === userId && !currentPlayer.extras?.isGhost) {
+        // Find nearest crewmate
+        let nearest = null;
+        let minDist = KILL_DISTANCE;
+        for (const target of players.values()) {
+          if (target.userId !== userId && !target.extras?.isGhost) {
+            const dist = Math.hypot(target.x - currentPlayer.x, target.y - currentPlayer.y);
+            if (dist <= minDist) {
+              minDist = dist;
+              nearest = target;
+            }
+          }
+        }
+
+        if (nearest) {
+          if (nearest.ownerCoordinatorId === COORDINATOR_ID) {
+            nearest.extras = { ...nearest.extras, isGhost: true };
+            broadcastToPeers({
+              type: "extras_replicate",
+              origin: COORDINATOR_ID,
+              userId: nearest.userId,
+              extras: { ...nearest.extras }
+            });
+          } else {
+            broadcastToPeers({
+              type: "kill_replicate",
+              origin: COORDINATOR_ID,
+              targetId: nearest.userId
+            });
+          }
+          currentPlayer.x = nearest.x; // teleport to victim
+          currentPlayer.y = nearest.y;
+          broadcastState();
+        }
+        return;
+      }
+
+      if (message.intent?.type === "vent" && globalGameState.status === "playing" && globalGameState.impostorId === userId && !currentPlayer.extras?.isGhost) {
+        if (currentPlayer.extras?.inVent) {
+          currentPlayer.extras.inVent = false;
+        } else {
+          // Check if near vent
+          for (const vent of WORLD.vents) {
+            const dist = Math.hypot(vent.x - currentPlayer.x, vent.y - currentPlayer.y);
+            if (dist <= 40) {
+              currentPlayer.extras.inVent = true;
+              break;
+            }
+          }
+        }
+        broadcastToPeers({
+          type: "extras_replicate",
+          origin: COORDINATOR_ID,
+          userId,
+          extras: { ...currentPlayer.extras }
+        });
+        broadcastState();
+        return;
+      }
+
+      if (message.intent?.type === "do_task" && globalGameState.status === "playing" && globalGameState.impostorId !== userId && !currentPlayer.extras?.isGhost) {
+        const isNearTask = WORLD.tasks.some(task => {
+          const cx = task.x + task.w/2;
+          const cy = task.y + task.h/2;
+          return Math.hypot(cx - currentPlayer.x, cy - currentPlayer.y) <= 60;
+        });
+
+        if (isNearTask) {
+          globalGameState.globalTasksCompleted = (globalGameState.globalTasksCompleted || 0) + 1;
+          broadcastToPeers({
+            type: "global_state_replicate",
+            origin: COORDINATOR_ID,
+            state: globalGameState
+          });
+          broadcastState();
+        }
+        return;
+      }
+
+      if (message.intent?.type === "call_meeting" && globalGameState.status === "playing" && !currentPlayer.extras?.isGhost) {
+        const btn = WORLD.emergencyButton;
+        const isNearButton = Math.hypot((btn.x + btn.w/2) - currentPlayer.x, (btn.y + btn.h/2) - currentPlayer.y) <= 60;
+        
+        if (isNearButton) {
+          globalGameState.status = "meeting";
+          globalGameState.meeting = {
+            caller: userId,
+            votes: {},
+            endsAt: Date.now() + 30000 // 30 seconds max
+          };
+          
+          // Reset everyone to cafeteria / middle
+          for (const p of players.values()) {
+             const hash = hashString(p.userId);
+             p.x = 300 + (hash % 200);
+             p.y = 50 + (Math.floor(hash / 97) % 70);
+             if (p.extras?.inVent) {
+               p.extras.inVent = false;
+               if (p.ownerCoordinatorId === COORDINATOR_ID) {
+                 broadcastToPeers({
+                   type: "extras_replicate",
+                   origin: COORDINATOR_ID,
+                   userId: p.userId,
+                   extras: { ...p.extras }
+                 });
+               }
+             }
+          }
+
+          broadcastToPeers({
+            type: "global_state_replicate",
+            origin: COORDINATOR_ID,
+            state: globalGameState
+          });
+          broadcastState();
+        }
+        return;
+      }
+
+      if (message.intent?.type === "vote" && globalGameState.status === "meeting" && !currentPlayer.extras?.isGhost) {
+        const targetId = message.intent.targetId || "skip";
+        
+        if (!globalGameState.meeting.votes[userId]) {
+          globalGameState.meeting.votes[userId] = targetId;
+          
+          // Check if all alive players voted
+          const alivePlayersCount = Array.from(players.values()).filter(p => !p.extras?.isGhost).length;
+          const votesCount = Object.keys(globalGameState.meeting.votes).length;
+
+          if (votesCount >= alivePlayersCount) {
+             endMeeting();
+          } else {
+             broadcastToPeers({
+               type: "global_state_replicate",
+               origin: COORDINATOR_ID,
+               state: globalGameState
+             });
+             broadcastState();
+          }
+        }
+        return;
+      }
+
+      if (message.intent?.type === "chat" && globalGameState.status === "meeting" && !currentPlayer.extras?.isGhost) {
+        const text = String(message.intent.text || "").trim().slice(0, 100);
+        if (!text) return;
+
+        const now = Date.now();
+        const lastChat = currentPlayer.extras?.lastChatTime || 0;
+        if (now - lastChat < 2000) {
+           return; // Rate limited
+        }
+
+        currentPlayer.extras.lastChatTime = now;
+
+        const chatMessage = {
+          type: "chat_replicate",
+          origin: COORDINATOR_ID,
+          userId: currentPlayer.userId,
+          username: currentPlayer.username,
+          text,
+          timestamp: now
+        };
+
+        const payloadStr = JSON.stringify(chatMessage);
+        for (const socket of localSockets.values()) {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(payloadStr);
+          }
+        }
+        
+        broadcastToPeers(chatMessage);
+        return;
+      }
     }
 
     if (message.type === "extras_update") {
@@ -950,10 +1268,70 @@ peerWss.on("connection", (socket) => {
 
 let lastTick = Date.now();
 
+function endMeeting() {
+  if (globalGameState.status !== "meeting") return;
+
+  const votes = globalGameState.meeting.votes;
+  const voteCounts = {};
+  for (const v of Object.values(votes)) {
+    voteCounts[v] = (voteCounts[v] || 0) + 1;
+  }
+
+  let maxVotes = 0;
+  let maxTarget = null;
+  let tie = false;
+
+  for (const [target, count] of Object.entries(voteCounts)) {
+    if (count > maxVotes) {
+      maxVotes = count;
+      maxTarget = target;
+      tie = false;
+    } else if (count === maxVotes) {
+      tie = true;
+    }
+  }
+
+  if (!tie && maxTarget && maxTarget !== "skip") {
+     const ejected = players.get(maxTarget);
+     if (ejected) {
+       if (ejected.ownerCoordinatorId === COORDINATOR_ID) {
+         ejected.extras = { ...ejected.extras, isGhost: true };
+         broadcastToPeers({
+           type: "extras_replicate",
+           origin: COORDINATOR_ID,
+           userId: maxTarget,
+           extras: { ...ejected.extras }
+         });
+       } else {
+         broadcastToPeers({
+           type: "eject_replicate",
+           origin: COORDINATOR_ID,
+           targetId: maxTarget
+         });
+       }
+     }
+  }
+
+  globalGameState.status = "playing";
+  globalGameState.meeting = null;
+
+  broadcastToPeers({
+    type: "global_state_replicate",
+    origin: COORDINATOR_ID,
+    state: globalGameState
+  });
+  broadcastState();
+}
+
 setInterval(() => {
   const now = Date.now();
   const deltaMs = now - lastTick;
   lastTick = now;
+
+  // Auto-end meeting if timer expires
+  if (globalGameState.status === "meeting" && globalGameState.meeting && now > globalGameState.meeting.endsAt) {
+     endMeeting();
+  }
 
   let changed = false;
 

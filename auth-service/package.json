@@ -4,13 +4,16 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node --experimental-sqlite index.js"
+    "start": "node --experimental-sqlite index.js",
+    "start:auth-2": "powershell -ExecutionPolicy Bypass -File ./start-auth-2.ps1",
+    "start:auth-3": "powershell -ExecutionPolicy Bypass -File ./start-auth-3.ps1"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "google-auth-library": "^9.15.1",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.18.0"
   }
 }

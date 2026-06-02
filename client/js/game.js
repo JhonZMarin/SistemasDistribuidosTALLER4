@@ -15,6 +15,11 @@ export function createGame(config) {
     worldWidth: 800,
     worldHeight: 600,
     playerRadius: 20,
+    walls: options.walls || [],
+    vents: options.vents || [],
+    vitals: options.vitals || null,
+    tasks: options.tasks || [],
+    emergencyButton: options.emergencyButton || null,
     backgroundColor: '#0f1419',
     gridColor: '#1f2730',
     gridSize: 40,
@@ -91,12 +96,101 @@ export function createGame(config) {
       ctx.lineTo(canvas.width, y);
       ctx.stroke();
     }
+
+    // Dibujar ductos (vents)
+    ctx.fillStyle = '#444';
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 2;
+    for (const vent of opts.vents) {
+      ctx.beginPath();
+      ctx.rect(vent.x - 20, vent.y - 15, 40, 30);
+      ctx.fill();
+      ctx.stroke();
+      
+      // Rejilla del ducto
+      ctx.beginPath();
+      ctx.moveTo(vent.x - 15, vent.y - 5);
+      ctx.lineTo(vent.x + 15, vent.y - 5);
+      ctx.moveTo(vent.x - 15, vent.y + 5);
+      ctx.lineTo(vent.x + 15, vent.y + 5);
+      ctx.stroke();
+    }
+
+    // Dibujar paredes
+    ctx.fillStyle = '#2a3b4c';
+    ctx.strokeStyle = '#1e2a38';
+    ctx.lineWidth = 4;
+    for (const wall of opts.walls) {
+      ctx.beginPath();
+      ctx.rect(wall.x, wall.y, wall.w, wall.h);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Dibujar Panel de Vitales
+    if (opts.vitals) {
+      ctx.fillStyle = '#0f52ba';
+      ctx.strokeStyle = '#0a3b85';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(opts.vitals.x, opts.vitals.y, opts.vitals.w, opts.vitals.h);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('VITALES', opts.vitals.x + opts.vitals.w / 2, opts.vitals.y + opts.vitals.h / 2);
+    }
+
+    // Dibujar Tareas
+    ctx.fillStyle = '#ffaa00';
+    ctx.strokeStyle = '#cc8800';
+    ctx.lineWidth = 2;
+    for (const task of opts.tasks) {
+      ctx.beginPath();
+      ctx.arc(task.x + task.w/2, task.y + task.h/2, task.w/2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#000000';
+      ctx.fillText('!', task.x + task.w/2, task.y + task.h/2);
+    }
+
+    // Dibujar Botón de Emergencia
+    if (opts.emergencyButton) {
+      ctx.fillStyle = '#e63946';
+      ctx.strokeStyle = '#990000';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(opts.emergencyButton.x + opts.emergencyButton.w/2, opts.emergencyButton.y + opts.emergencyButton.h/2, opts.emergencyButton.w/2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '14px sans-serif';
+      ctx.fillText('🚨', opts.emergencyButton.x + opts.emergencyButton.w/2, opts.emergencyButton.y + opts.emergencyButton.h/2);
+    }
   }
 
   function drawPlayer(p) {
     const isLocal = p.userId === localPlayerId;
     const color = colorFromId(p.userId);
-    const mood = p.extras?.mood || ""; // Obtener el emoji [cite: 553]
+    const isGhost = p.extras?.isGhost;
+    const inVent = p.extras?.inVent;
+
+    // Check my state
+    const state = getRenderState();
+    const myPlayer = state?.players?.find(player => player.userId === localPlayerId);
+    const amIGhost = myPlayer?.extras?.isGhost;
+
+    if (inVent && !isLocal) {
+        return; // Don't draw others if they are in vent
+    }
+
+    if (isGhost && !isLocal && !amIGhost) {
+        return; // Vivos no ven a los fantasmas
+    }
+
+    ctx.globalAlpha = isGhost ? 0.4 : (inVent ? 0.3 : 1.0);
 
     ctx.beginPath();
     ctx.arc(p.x, p.y, opts.playerRadius, 0, Math.PI * 2);
@@ -104,14 +198,24 @@ export function createGame(config) {
     ctx.fill();
 
     ctx.lineWidth = isLocal ? 3 : 1.5;
-    ctx.strokeStyle = isLocal ? '#ffffff' : '#000000';
+    ctx.strokeStyle = isGhost ? '#555555' : (isLocal ? '#ffffff' : '#000000');
     ctx.stroke();
 
-    // Dibujar Username + Mood [cite: 553]
+    if (isGhost) {
+      ctx.font = '16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('👻', p.x, p.y);
+    }
+
+    // Dibujar Username
+    ctx.globalAlpha = 1.0;
     ctx.font = '14px Rajdhani, sans-serif';
     ctx.fillStyle = '#e6fbff';
     ctx.textAlign = 'center';
-    const text = `${mood} ${p.username}${isLocal ? ' (tú)' : ''}`;
+    ctx.textBaseline = 'alphabetic';
+    const text = `${p.username}${isLocal ? ' (tú)' : ''}`;
     ctx.fillText(text, p.x, p.y - opts.playerRadius - 10);
 }
 

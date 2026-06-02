@@ -1,83 +1,100 @@
-# SistemasDistribuidosTALLER4
+# Prototipo Among Us - Sistemas Distribuidos (Taller 4 / Examen Final)
 
-Repositorio del cliente web y los servicios base del proyecto final de Sistemas Distribuidos.
+**Autor:** Wilson Sebastian Moreno Sanchez (Código: 55223016)
 
-## Estructura
+Este repositorio contiene la implementación del Taller 4 y Examen Final de Sistemas Distribuidos. Consiste en un clon funcional de "Among Us" utilizando una arquitectura distribuida estricta sin el uso de herramientas externas de enrutamiento o mensajería (sin Redis, sin Kafka, sin proxies reversos).
 
-- `client/`: interfaz web de login, registro y lobby.
-- `auth-service/`: autenticacion local/Google y directory service para coordinadores.
-- `coordinador/`: coordinador de juego con clientes WebSocket, heartbeats y mesh entre peers.
+## 🏗️ Arquitectura del Sistema
 
-## Variables de entorno
+El sistema se compone de tres piezas fundamentales:
 
-### `client/.env`
+1. **Auth Service (Directorio P2P y Autenticación)**
+   - Base de datos local usando `node:sqlite`.
+   - Autenticación Stateless basada en **JWT** (JSON Web Tokens).
+   - **Replicación Single-Writer**: Cada instancia del Auth Service tiene su propia base de datos local (`users-auth-X.db`). La replicación se hace sincronizando peticiones a través de WebSockets (`sync_request`, `write_propagate`).
+   - Sirve como directorio para que los clientes descubran los Coordinadores disponibles (`/peers`).
 
-```env
-PORT=3000
-AUTH_URL=http://localhost:4000
-WS_URL=
-GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
-```
+2. **Coordinadores (Servidores de Juego en Mesh P2P)**
+   - Forman un **Mesh P2P Completo** utilizando WebSockets.
+   - Reciben "Intents" (intenciones de acción) de los clientes, calculan el estado resultante (ej. colisiones de paredes, distancias de asesinato) de forma autoritativa.
+   - Replican el estado a otros coordinadores mediante eventos P2P (ej. `global_state_replicate`, `extras_replicate`, `chat_replicate`).
+   - Sin estado persistente en disco; todo corre en memoria para máxima velocidad.
 
-`WS_URL` queda opcional. El cliente ahora resuelve el coordinador con `GET /coordinator`.
+3. **Cliente Web (Frontend)**
+   - Servidor estático ultra-ligero (`express`).
+   - Renderizado en `<canvas>` con JavaScript puro (sin frameworks).
+   - Simplemente dibuja el estado que dicta el Coordinador y envía inputs del usuario (`intent`).
 
-### `auth-service/.env`
+---
 
-```env
-PORT=4000
-JWT_SECRET=replace_with_a_secret_at_least_32_chars
-JWT_EXPIRES_IN=1h
-GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
-HEARTBEAT_TIMEOUT_MS=6000
-```
+## 🚀 Funcionalidades Implementadas (Fases)
 
-### `coordinador/.env`
+### Fase 1: Replicación del Auth
+Se eliminó la base de datos compartida. Ahora, múltiples Auth Services pueden correr en paralelo. Un nodo actúa como **Leader** (Writer) y propaga las escrituras (registros de usuarios) a los demás nodos, garantizando consistencia eventual estricta sin librerías externas.
 
-```env
-PORT=5000
-PEER_PORT=5100
-JWT_SECRET=replace_with_the_same_secret_used_by_auth_service
-COORDINATOR_ID=coord-a
-AUTH_SERVICE_URL=http://localhost:4000
-PUBLIC_WS_URL=ws://localhost:5000
-PEER_WS_URL=ws://localhost:5100
-WORLD_WIDTH=800
-WORLD_HEIGHT=600
-PLAYER_RADIUS=20
-PLAYER_SPEED=220
-TICK_RATE=20
-HEARTBEAT_INTERVAL_MS=2000
-PEER_DISCOVERY_INTERVAL_MS=2000
-```
+### Fase 2: Mecánicas Base (Core Loop)
+- Colisiones Server-Side utilizando *AABB bounding boxes*.
+- Sistema de roles aleatorio (Tripulantes vs 1 Impostor).
+- **Asesinato (Kill)**: Validación de proximidad en el servidor.
+- **Ductos (Vent)**: Capacidad del impostor de esconderse del mapa.
 
-## Ejecucion local
+### Fase 3: Zonas de Interacción
+- **Tareas Globales**: Zonas redondas amarillas. Si un tripulante interactúa, suma al progreso global del equipo.
+- **Panel de Vitales (Track 2.5)**: Escritorio azul en la cafetería. Muestra a todos los jugadores un modal con el estado en tiempo real (Vivo/Muerto) de la tripulación.
 
-```bash
-cd auth-service
-npm install
-npm start
-```
+### Fase 4: Reuniones de Emergencia
+- Botón rojo central. Al activarse, congela el movimiento de todo el servidor y levanta el panel de votación P2P.
+- Temporizador de 30s. El jugador con mayoría absoluta es expulsado mediante un intent `eject_replicate`.
 
-```bash
-cd coordinador
-npm install
-npm start
-```
+### Fase 5: Chat Distribuido (Track 2.6)
+- Sistema de chat habilitado **únicamente** durante las reuniones de emergencia.
+- **Validaciones en el Coordinador**: Longitud máxima (100 caracteres) y **Rate Limiting** (1 mensaje cada 2 segundos) para prevenir spam.
+- Replicado en tiempo real a toda la red Mesh.
 
-Para varios coordinadores, levanta varias instancias con distinto `PORT`, `PEER_PORT`, `COORDINATOR_ID`, `PUBLIC_WS_URL` y `PEER_WS_URL`.
+### Fase 6: Modo Espectador (Track 2.5)
+- Los jugadores asesinados o expulsados se convierten en **Fantasmas** (semi-transparentes).
+- Los fantasmas están completamente silenciados a nivel servidor: no pueden matar, usar ductos, llamar reuniones ni chatear.
+- **Visibilidad asimétrica**: Los jugadores vivos NO pueden ver a los fantasmas. Los fantasmas SÍ pueden ver a otros fantasmas.
 
-```bash
-cd client
-npm install
-npm start
-```
+---
 
-Luego abre `http://localhost:3000`.
+## ⚙️ Instrucciones de Ejecución Local
 
-## Flujo actual
+Para probar todo el entorno en una sola máquina (simulando 1 Auth y 1 Coordinador):
 
-1. El cliente hace login en `auth-service`.
-2. El lobby pide `GET /coordinator`.
-3. El cliente abre `WS /connect?token=...` contra el coordinador asignado.
-4. Cada coordinador manda heartbeat al auth y descubre peers con `GET /peers`.
-5. Los coordinadores replican `player_joined`, `player_left`, `intent_replicate` y `extras_replicate`.
+1. **Instalar dependencias globales** (Solo si no están instaladas):
+   Asegúrate de ejecutar `npm install` dentro de las carpetas `auth-service`, `coordinador` y `client`.
+
+2. **Levantar el Servicio de Autenticación**:
+   En una terminal:
+   ```bash
+   cd auth-service
+   npm start
+   ```
+
+3. **Levantar el Coordinador P2P**:
+   En otra terminal:
+   ```bash
+   cd coordinador
+   npm start
+   ```
+
+4. **Levantar el Cliente Web**:
+   En una tercera terminal:
+   ```bash
+   cd client
+   npm start
+   ```
+
+5. **Jugar**:
+   Abre [http://localhost:3000](http://localhost:3000) en tu navegador. Puedes abrir múltiples pestañas (idealmente en modo incógnito o navegadores distintos) para registrarte con distintos usuarios y probar la interacción multijugador.
+
+---
+
+## 💥 Modos de Falla y Resiliencia (Failover)
+
+El sistema está diseñado para resistir caídas:
+- Si un **Coordinador** se cae o lo apagas con `Ctrl+C`, el Auth Service lo detectará tras fallar sus heartbeats. Los clientes conectados perderán la conexión, pero el código del frontend interceptará la caída (`ws.onclose`) y solicitará un nuevo coordinador automáticamente (`COORDINATOR_FAILOVER_DELAY_MS`), reconectándose a otro nodo sano si existe.
+- Si el **Auth Service** principal se cae, puedes lanzar los scripts `start-auth-2.ps1` y `start-auth-3.ps1` para simular un clúster, demostrando la sincronización P2P en el registro y login.
+
+> **Nota:** Esta versión es considerada un *Prototipo funcional técnico*. Las siguientes iteraciones se enfocarán en mejorar la arquitectura de carpetas, cambiar los "círculos" por sprites/imágenes 2D reales, refinar el diseño del mapa y las interfaces UI.
