@@ -831,7 +831,10 @@ async function sendHeartbeat() {
   try {
     await fetch(`${AUTH_SERVICE_URL}/heartbeat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true" 
+      },
       body: JSON.stringify(payload)
     });
   } catch (error) {
@@ -841,7 +844,9 @@ async function sendHeartbeat() {
 
 async function refreshPeerDirectory() {
   try {
-    const response = await fetch(`${AUTH_SERVICE_URL}/peers`);
+    const response = await fetch(`${AUTH_SERVICE_URL}/peers`, {
+      headers: { "ngrok-skip-browser-warning": "true" }
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
