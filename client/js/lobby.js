@@ -241,6 +241,12 @@ async function connectThroughDirectory() {
             return;
         }
 
+        if (msg.type === "game_over") {
+            const winnerText = msg.winner === "crewmates" ? "¡TRIPULANTES GANAN!" : "¡IMPOSTORES GANAN!";
+            alert(`FIN DE LA PARTIDA\n\n${winnerText}`);
+            return;
+        }
+
         if (msg.type === "state") {
             window.currentGameState = msg;
             updatePlayersUI(msg.players);
