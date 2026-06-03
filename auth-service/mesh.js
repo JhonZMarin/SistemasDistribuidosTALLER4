@@ -136,7 +136,9 @@ function connectToAuthPeer(peerUrl) {
   let socket;
 
   try {
-    socket = new WebSocket(peerUrl);
+    socket = new WebSocket(peerUrl, {
+      headers: { "ngrok-skip-browser-warning": "1" }
+    });
   } catch (error) {
     pendingAuthOutbound.delete(peerUrl);
     return;
