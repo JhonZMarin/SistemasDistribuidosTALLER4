@@ -1,0 +1,6 @@
+
+> taller4-client@1.0.0 start
+> node server.js
+
+◇ injected env (5) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+Client web listening on http://localhost:3000

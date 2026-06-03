@@ -1,0 +1,7 @@
+
+> taller4-auth-service@1.0.0 start
+> node --experimental-sqlite index.js
+
+◇ injected env (15) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+Auth service listening on http://localhost:4000
+Auth peer mesh listening on ws://localhost:4500

@@ -1,0 +1,7 @@
+
+> taller4-coordinator@1.0.0 start
+> node index.js
+
+◇ injected env (15) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+Coordinator coord-a public WS listening on http://localhost:5000
+Coordinator coord-a peer WS listening on http://localhost:5100
