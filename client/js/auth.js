@@ -4,6 +4,7 @@ const AUTH_STORAGE_KEYS = Object.freeze({
 });
 
 const GOOGLE_USERNAME_PATTERN = /^[a-zA-Z0-9_]+$/;
+const AUTH_REQUEST_TIMEOUT_MS = 10000;
 
 let googleInitialized = false;
 let pendingGoogleIdToken = null;
@@ -26,6 +27,24 @@ function getAuthUrls() {
 
 function buildAuthUrl(baseUrl, path) {
     return `${normalizeBaseUrl(baseUrl)}${path}`;
+}
+
+function isLocalHostUrl(url) {
+    try {
+        const { hostname } = new URL(url);
+        return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    } catch (error) {
+        return false;
+    }
+}
+
+function canFollowLeaderUrl(url) {
+    if (!url) return false;
+
+    const pageHost = window.location.hostname;
+    const pageIsLocal = pageHost === "localhost" || pageHost === "127.0.0.1" || pageHost === "::1";
+
+    return pageIsLocal || !isLocalHostUrl(url);
 }
 
 function buildAuthHeaders(includeJsonContentType = false) {
@@ -52,7 +71,34 @@ async function readJsonSafely(response) {
     }
 }
 
-async function fetchJsonWithFallback(path, { method = "POST", payload = null, expectBody = true, signal = undefined } = {}) {
+async function fetchWithTimeout(resource, options, timeoutMs) {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+        return fetch(resource, options);
+    }
+
+    let timeoutId = null;
+
+    try {
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = window.setTimeout(() => {
+                const error = new Error("request_timeout");
+                error.name = "TimeoutError";
+                reject(error);
+            }, timeoutMs);
+        });
+
+        return await Promise.race([
+            fetch(resource, options),
+            timeoutPromise
+        ]);
+    } finally {
+        if (timeoutId !== null) {
+            window.clearTimeout(timeoutId);
+        }
+    }
+}
+
+async function fetchJsonWithFallback(path, { method = "POST", payload = null, expectBody = true, signal = undefined, timeoutMs = AUTH_REQUEST_TIMEOUT_MS } = {}) {
     const urls = getAuthUrls();
     const tried = new Set();
     const queue = [...urls];
@@ -67,21 +113,30 @@ async function fetchJsonWithFallback(path, { method = "POST", payload = null, ex
         tried.add(baseUrl);
 
         try {
-            const response = await fetch(buildAuthUrl(baseUrl, path), {
+            const response = await fetchWithTimeout(buildAuthUrl(baseUrl, path), {
                 method,
                 headers: buildAuthHeaders(Boolean(payload)),
                 body: payload ? JSON.stringify(payload) : undefined,
                 signal
-            });
+            }, timeoutMs);
             const data = expectBody ? await readJsonSafely(response) : null;
 
             if (response.ok) {
+                if (expectBody && data === null) {
+                    continue;
+                }
+
                 lastAuthUrlUsed = baseUrl;
                 return { ok: true, status: response.status, data, authUrl: baseUrl };
             }
 
             const leaderUrl = normalizeBaseUrl(data?.leaderUrl);
-            if (response.status === 503 && data?.error === "not_leader" && leaderUrl && !tried.has(leaderUrl)) {
+            if (
+                response.status === 503
+                && data?.error === "not_leader"
+                && canFollowLeaderUrl(leaderUrl)
+                && !tried.has(leaderUrl)
+            ) {
                 queue.unshift(leaderUrl);
                 continue;
             }
@@ -96,6 +151,11 @@ async function fetchJsonWithFallback(path, { method = "POST", payload = null, ex
             if (signal?.aborted || error?.name === "AbortError") {
                 throw error;
             }
+
+            if (error?.name === "TimeoutError") {
+                continue;
+            }
+
             continue;
         }
     }
@@ -304,11 +364,26 @@ async function completeGoogleAuth(idToken, username) {
     toggleFormState(usernameForm, true);
     setMessage(message, "Validando login con Google...", "info");
 
-    const result = await authWithGoogle(idToken, username);
+    let result;
+
+    try {
+        result = await authWithGoogle(idToken, username);
+    } catch (error) {
+        toggleFormState(usernameForm, false);
+        resetGoogleFlow();
+        setMessage(message, "La validacion con Google no respondio. Intenta otra vez.", "error");
+        return;
+    }
 
     toggleFormState(usernameForm, false);
 
     if (result.ok) {
+        if (!result.data?.token || !result.data?.username) {
+            resetGoogleFlow();
+            setMessage(message, "La respuesta del auth fue invalida. Reintenta.", "error");
+            return;
+        }
+
         resetGoogleFlow();
         saveSession(result.data.token, result.data.username);
         window.location.href = "./lobby.html";

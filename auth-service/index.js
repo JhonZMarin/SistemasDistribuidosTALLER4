@@ -69,6 +69,30 @@ function isWebSocketUrl(url) {
   return /^wss?:\/\//i.test(url);
 }
 
+function isLocalHttpUrl(url) {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch (error) {
+    return false;
+  }
+}
+
+function resolvePublicAuthUrl(reportedPublicUrl, sourceAuthUrl) {
+  const reported = normalizeBaseUrl(reportedPublicUrl);
+  const source = normalizeBaseUrl(sourceAuthUrl);
+
+  if (!reported) {
+    return source;
+  }
+
+  if (isLocalHttpUrl(reported) && source && !isLocalHttpUrl(source)) {
+    return source;
+  }
+
+  return reported;
+}
+
 function toNonNegativeInteger(value) {
   if (!Number.isFinite(value)) {
     return null;
@@ -942,7 +966,11 @@ async function refreshAuthPeerDirectory() {
       const data = await response.json();
       const authId = String(data?.authId || "").trim();
       const peerUrl = normalizeBaseUrl(data?.peerUrl);
-      const publicUrl = normalizeBaseUrl(data?.publicUrl);
+      const publicUrl = resolvePublicAuthUrl(data?.publicUrl, authUrl);
+
+      if (isLocalHttpUrl(peerUrl) && !isLocalHttpUrl(authUrl)) {
+        continue;
+      }
 
       if (!authId || authId === AUTH_ID || !/^wss?:\/\//i.test(peerUrl)) {
         continue;
