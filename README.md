@@ -1,110 +1,151 @@
-# Prototipo Among Us - Sistemas Distribuidos (Taller 4 / Examen Final)
+# Radar de Pilotos - UB (Among Us Distribuido P2P)
 
-**Autor:** Wilson Sebastian Moreno Sanchez (Código: 55223016)
+**Arquitectura de Sistemas Distribuidos - Taller 4**
 
-Este repositorio contiene la implementación del Taller 4 y Examen Final de Sistemas Distribuidos. Consiste en un clon funcional de "Among Us" utilizando una arquitectura distribuida estricta sin el uso de herramientas externas de enrutamiento o mensajería (sin Redis, sin Kafka, sin proxies reversos).
+Este proyecto es la implementación de un juego multijugador asíncrono (estilo Among Us) construido sobre una **Topología de Malla (Mesh P2P) tolerante a fallos**, con un servicio centralizado de descubrimiento y autenticación que maneja un **Algoritmo de Elección de Líder (Bully Algorithm)**.
 
-## 🏗️ Arquitectura del Sistema
-
-El sistema se compone de tres piezas fundamentales:
-
-1. **Auth Service (Directorio P2P y Autenticación)**
-   - Base de datos local usando `node:sqlite`.
-   - Autenticación Stateless basada en **JWT** (JSON Web Tokens).
-   - **Replicación Single-Writer**: Cada instancia del Auth Service tiene su propia base de datos local (`users-auth-X.db`). La replicación se hace sincronizando peticiones a través de WebSockets (`sync_request`, `write_propagate`).
-   - Sirve como directorio para que los clientes descubran los Coordinadores disponibles (`/peers`).
-
-2. **Coordinadores (Servidores de Juego en Mesh P2P)**
-   - Forman un **Mesh P2P Completo** utilizando WebSockets.
-   - Reciben "Intents" (intenciones de acción) de los clientes, calculan el estado resultante (ej. colisiones de paredes, distancias de asesinato) de forma autoritativa.
-   - Replican el estado a otros coordinadores mediante eventos P2P (ej. `global_state_replicate`, `extras_replicate`, `chat_replicate`).
-   - Sin estado persistente en disco; todo corre en memoria para máxima velocidad.
-
-3. **Cliente Web (Frontend)**
-   - Servidor estático ultra-ligero (`express`).
-   - Renderizado en `<canvas>` con JavaScript puro (sin frameworks).
-   - Simplemente dibuja el estado que dicta el Coordinador y envía inputs del usuario (`intent`).
+El objetivo principal es demostrar conceptos de sistemas distribuidos: **replicación de estado, tolerancia a fallos, balanceo de carga, algoritmos de consenso y reconexión dinámica.**
 
 ---
 
-## 🚀 Funcionalidades Implementadas (Fases)
+## 🏗 Arquitectura del Sistema
 
-### Fase 1: Replicación del Auth
+El sistema se compone de 3 capas principales:
 
-Se eliminó la base de datos compartida. Ahora, múltiples Auth Services pueden correr en paralelo. Un nodo actúa como **Leader** (Writer) y propaga las escrituras (registros de usuarios) a los demás nodos, garantizando consistencia eventual estricta sin librerías externas.
+```mermaid
+graph TD
+    subgraph Capa de Clientes (Frontend)
+        C1[Cliente 1]
+        C2[Cliente 2]
+        C3[Cliente N]
+    end
 
-### Fase 2: Mecánicas Base (Core Loop)
+    subgraph Capa de Autenticación (Registry & Leader)
+        A1[Auth Service 1 (Leader)]
+        A2[Auth Service 2 (Replica)]
+        A3[Auth Service 3 (Replica)]
+    end
 
-- Colisiones Server-Side utilizando _AABB bounding boxes_.
-- Sistema de roles aleatorio (Tripulantes vs 1 Impostor).
-- **Asesinato (Kill)**: Validación de proximidad en el servidor.
-- **Ductos (Vent)**: Capacidad del impostor de esconderse del mapa.
+    subgraph Capa Coordinadora (Mesh P2P)
+        M1[Coordinador A]
+        M2[Coordinador B]
+        M3[Coordinador C]
+    end
 
-### Fase 3: Zonas de Interacción
+    C1 <-->|WebSocket: Estado local| M1
+    C2 <-->|WebSocket: Estado local| M2
+    C3 <-->|WebSocket: Estado local| M2
+    
+    C1 -.->|HTTP GET /coordinator: Descubrimiento| A1
+    
+    M1 <-->|WebSocket P2P: Full Mesh| M2
+    M2 <-->|WebSocket P2P: Full Mesh| M3
+    M1 <-->|WebSocket P2P: Full Mesh| M3
 
-- **Tareas Globales**: Zonas redondas amarillas. Si un tripulante interactúa, suma al progreso global del equipo.
-- **Panel de Vitales (Track 2.5)**: Escritorio azul en la cafetería. Muestra a todos los jugadores un modal con el estado en tiempo real (Vivo/Muerto) de la tripulación.
+    M1 -.->|HTTP POST /heartbeat| A1
+    M2 -.->|HTTP POST /heartbeat| A1
+    M3 -.->|HTTP POST /heartbeat| A1
+    
+    A1 <-->|HTTP: Bully Election| A2
+    A2 <-->|HTTP: Bully Election| A3
+```
 
-### Fase 4: Reuniones de Emergencia
+### 1. Auth Service (Directorio y Autenticación)
+- Actúa como servicio de registro y balanceador de carga.
+- Maneja la emisión de JSON Web Tokens (JWT) para la autenticación de usuarios.
+- Implementa el **Algoritmo Bully** para elegir un "Líder" entre múltiples instancias del servicio. El líder se encarga de administrar el estado unificado y servir el Directorio.
+- Recibe *Heartbeats* periódicos (cada 3s) de los coordinadores para saber cuáles están vivos. Si un coordinador deja de enviar señales (timeout de 6s), es podado del registro.
 
-- Botón rojo central. Al activarse, congela el movimiento de todo el servidor y levanta el panel de votación P2P.
-- Temporizador de 30s. El jugador con mayoría absoluta es expulsado mediante un intent `eject_replicate`.
+### 2. Coordinadores (Mesh P2P)
+- Nodos backend que actúan como servidores de juego.
+- Se conectan entre sí creando una **Malla Completa (Full Mesh)**. Para evitar bucles de conexión, el nodo con el ID alfanumérico menor es responsable de iniciar el socket contra el mayor.
+- Tienen dos canales de comunicación:
+  - **Canal Público (`routes.js`):** WebSockets para los clientes locales.
+  - **Canal P2P (`mesh.js`):** WebSockets hacia otros coordinadores para propagar el estado (Jugadores, Intenciones de Movimiento, Votaciones, Tareas).
 
-### Fase 5: Chat Distribuido (Track 2.6)
-
-- Sistema de chat habilitado **únicamente** durante las reuniones de emergencia.
-- **Validaciones en el Coordinador**: Longitud máxima (100 caracteres) y **Rate Limiting** (1 mensaje cada 2 segundos) para prevenir spam.
-- Replicado en tiempo real a toda la red Mesh.
-
-### Fase 6: Modo Espectador (Track 2.5)
-
-- Los jugadores asesinados o expulsados se convierten en **Fantasmas** (semi-transparentes).
-- Los fantasmas están completamente silenciados a nivel servidor: no pueden matar, usar ductos, llamar reuniones ni chatear.
-- **Visibilidad asimétrica**: Los jugadores vivos NO pueden ver a los fantasmas. Los fantasmas SÍ pueden ver a otros fantasmas.
-
----
-
-## ⚙️ Instrucciones de Ejecución Local
-
-Para probar todo el entorno en una sola máquina (simulando 1 Auth y 1 Coordinador):
-
-1. **Instalar dependencias globales** (Solo si no están instaladas):
-   Asegúrate de ejecutar `npm install` dentro de las carpetas `auth-service`, `coordinador` y `client`.
-
-2. **Levantar el Servicio de Autenticación**:
-   En una terminal:
-
-   ```bash
-   cd auth-service
-   npm start
-   ```
-
-3. **Levantar el Coordinador P2P**:
-   En otra terminal:
-
-   ```bash
-   cd coordinador
-   npm start
-   ```
-
-4. **Levantar el Cliente Web**:
-   En una tercera terminal:
-
-   ```bash
-   cd client
-   npm start
-   ```
-
-5. **Jugar**:
-   Abre [http://localhost:3000](http://localhost:3000) en tu navegador. Puedes abrir múltiples pestañas (idealmente en modo incógnito o navegadores distintos) para registrarte con distintos usuarios y probar la interacción multijugador.
+### 3. Cliente (Vanilla JS & Canvas)
+- SPA (Single Page Application) que se renderiza mediante Canvas API a 60 FPS.
+- Envía comandos de "Intención" (`intent`) 20 veces por segundo.
+- Realiza el descubrimiento de red de manera asíncrona: primero contacta al Auth Service, obtiene la URL del coordinador con menor carga, y abre un WebSocket contra este.
 
 ---
 
-## 💥 Modos de Falla y Resiliencia (Failover)
+## 🛠 Decisiones de Diseño
 
-El sistema está diseñado para resistir caídas:
+1. **Replicación de Estado Event-Sourced vs Snapshotting:** 
+   El juego no envía el estado del mundo completo en cada frame, lo cual saturaría la red. En su lugar, cuando un jugador se mueve, se envía una *Intención de movimiento (vector de dirección)*. El Game Loop de cada coordinador interpola las posiciones localmente de manera independiente pero determinista. Cada cierto tiempo (Snapshot), se sincronizan coordenadas exactas para corregir desfases (Rubber-banding).
+2. **Failover Optimista (Desconexión suave):**
+   Si el Coordinador A se cae, la malla de coordinadores restantes marca a sus jugadores como `disconnected` en lugar de eliminarlos. Esto preserva el progreso de tareas, ubicación y roles (Ej. si era Impostor). Cuando el cliente reconecta tras el failover, "reclama" su estado conservándolo intacto.
+3. **Ngrok Tunneling y Bypass de Seguridad:**
+   Dado que Ngrok intercepta peticiones HTTP para mostrar una advertencia en navegadores (`Browser Warning`), todas las conexiones de WebSockets (que inician como HTTP Upgrade) y peticiones `fetch` envían la cabecera `ngrok-skip-browser-warning: 1` para no ser bloqueadas a nivel de proxy.
+4. **Caché Buster en Descubrimiento (`no-store`):**
+   Dado que los browsers cachean fuertemente los métodos `GET`, la solicitud `/coordinator` se forzó con `cache: 'no-store'`. De lo contrario, durante un failover, el cliente obtendría la misma URL del coordinador muerto una y otra vez desde la caché local del navegador, creando un bucle de desconexión infinita.
 
-- Si un **Coordinador** se cae o lo apagas con `Ctrl+C`, el Auth Service lo detectará tras fallar sus heartbeats. Los clientes conectados perderán la conexión, pero el código del frontend interceptará la caída (`ws.onclose`) y solicitará un nuevo coordinador automáticamente (`COORDINATOR_FAILOVER_DELAY_MS`), reconectándose a otro nodo sano si existe.
-- Si el **Auth Service** principal se cae, puedes lanzar los scripts `start-auth-2.ps1` y `start-auth-3.ps1` para simular un clúster, demostrando la sincronización P2P en el registro y login.
+---
 
-> **Nota:** Esta versión es considerada un _Prototipo funcional técnico_. Las siguientes iteraciones se enfocarán en mejorar la arquitectura de carpetas, cambiar los "círculos" por sprites/imágenes 2D reales, refinar el diseño del mapa y las interfaces UI.
+## 🚨 Modos de Falla Conocidos & Tolerancia
+
+| Escenario de Falla | Comportamiento del Sistema (Mitigación) |
+| :--- | :--- |
+| **Caída de un Coordinador de Juego** | El cliente detecta cierre del WebSocket (`onclose`). El cliente espera unos segundos a que el Auth Service mutile al coordinador muerto por falta de heartbeats. Luego solicita un nuevo coordinador y se conecta al sobreviviente. Sus datos in-game persisten. |
+| **Caída del Auth Service Leader** | Se gatilla el Algoritmo Bully. El Auth Service con mayor prioridad asume el liderazgo. Mientras ocurre la elección, no pueden unirse nuevos jugadores ni iniciar nuevos coordinadores, pero *las partidas en curso no se ven afectadas* (la malla P2P funciona independientemente). |
+| **Jugador pierde internet temporalmente** | El jugador es marcado como "desconectado" y queda congelado para los demás. Tiene 7 segundos de gracia para reconectar; si vuelve en ese periodo, su cliente renegocia el WebSocket sin perder el estado local. |
+| **Aislamiento Parcial (Split Brain)** | Si la malla P2P se corta a la mitad, se producirá divergencia de estado local. La mitigación actual prioriza que el juego no se cierre, resultando en dos realidades alternas hasta que el enlace de red regrese y el líder de la malla decida quién sobrescribe el estado. |
+
+---
+
+## 🚀 Guía de Despliegue Rápido (Local)
+
+### Requisitos Previos
+- Node.js v18 o superior
+- Si se va a probar por internet: Ngrok instalado
+
+### Paso 1: Levantar los Auth Services
+En la carpeta `/auth-service`:
+Instala las dependencias:
+```bash
+npm install
+```
+
+Levanta 3 instancias en consolas diferentes para simular el algoritmo Bully (usa las variables de entorno incluidas):
+```bash
+# Terminal 1
+node index.js
+
+# Terminal 2
+node --env-file=.env.auth2 index.js
+
+# Terminal 3
+node --env-file=.env.auth3 index.js
+```
+
+### Paso 2: Levantar Coordinadores
+Abre la carpeta `/coordinador` y duplícala físicamente o ábrela en múltiples consolas usando variables locales (se provee el `.env` para simplificar, pero necesitarás exponer diferentes puertos en cada instancia si usas una sola máquina).
+```bash
+npm install
+npm start
+```
+*Si levantas múltiples en la misma PC, asegúrate de cambiar `PORT_PUBLIC` y `PORT_PEER` en cada `.env` adicional.*
+
+### Paso 3: Exponer a Internet (Ngrok) - Opcional
+Si vas a jugar con amigos, debes exponer *los puertos* de Auth y de al menos un Coordinador.
+
+```bash
+# Exponer Auth Leader (Ej. puerto 3000)
+ngrok http 3000
+
+# Exponer un Coordinador Público (Ej. puerto 5000)
+ngrok http 5000
+```
+
+Tras esto, debes colocar las URLs de ngrok generadas en:
+1. `client/js/config.js` -> `window.AUTH_SERVICES = ["https://<tu-auth-ngrok>"]`
+2. `.env` del coordinador -> `PUBLIC_URL="https://<tu-coord-ngrok>"`
+
+### Paso 4: Jugar
+Abre la carpeta `/client`. **No uses protocolo `file://`**, debes levantar un servidor estático:
+```bash
+npx serve .
+```
+O usar extensiones como "Live Server" de VSCode.
+Ingresa al cliente, pon un nombre, la URL del Auth Service y disfruta de la partida.

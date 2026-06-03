@@ -101,6 +101,7 @@ export class GameUI {
     if (!this.playersListElem) return;
     this.playersListElem.innerHTML = '';
     if (this.vitalsListElem) this.vitalsListElem.innerHTML = '';
+    if (this.modalPlayersListElem) this.modalPlayersListElem.innerHTML = '';
     
     for (const p of players) {
       const li = document.createElement('li');
@@ -115,6 +116,7 @@ export class GameUI {
           <div class="player-item__status">
             ${p.extras?.isGhost ? 'FANTASMA' : 'VIVO'} 
             ${p.extras?.inVent ? '(DUCTO)' : ''}
+            <span style="color: var(--cyan); font-size: 0.75rem; margin-left: 5px;">[${this.escapeHTML(p.coordinatorId || 'Local')}]</span>
           </div>
         </div>
       `;
@@ -159,7 +161,7 @@ export class GameUI {
     if (this.playingControls) this.playingControls.style.display = 'none';
     const lobbyPanel = document.getElementById('lobby-panel');
     if (lobbyPanel) lobbyPanel.style.display = 'block';
-    if (this.networkInfoContainer) this.networkInfoContainer.style.display = 'none';
+    if (this.networkInfoContainer) this.networkInfoContainer.style.display = 'block';
   }
 
   showPlayingControls(globalTasks, totalTasks) {
