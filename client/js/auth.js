@@ -7,9 +7,25 @@ const GOOGLE_USERNAME_PATTERN = /^[a-zA-Z0-9_]+$/;
 
 let googleInitialized = false;
 let pendingGoogleIdToken = null;
+let lastAuthUrlUsed = null;
 
-function buildAuthUrl(path) {
-    return `${window.getAuthBaseUrl()}${path}`;
+function normalizeBaseUrl(url) {
+    return String(url || "").trim().replace(/\/+$/, "");
+}
+
+function getAuthUrls() {
+    const urls = Array.isArray(window.getAuthUrls?.()) ? window.getAuthUrls() : [];
+
+    if (urls.length) {
+        return urls.map((url) => normalizeBaseUrl(url)).filter(Boolean);
+    }
+
+    const fallback = normalizeBaseUrl(window.getAuthBaseUrl?.());
+    return fallback ? [fallback] : [];
+}
+
+function buildAuthUrl(baseUrl, path) {
+    return `${normalizeBaseUrl(baseUrl)}${path}`;
 }
 
 function buildAuthHeaders(includeJsonContentType = false) {
@@ -34,6 +50,57 @@ async function readJsonSafely(response) {
     } catch (error) {
         return null;
     }
+}
+
+async function fetchJsonWithFallback(path, { method = "POST", payload = null, expectBody = true, signal = undefined } = {}) {
+    const urls = getAuthUrls();
+    const tried = new Set();
+    const queue = [...urls];
+
+    while (queue.length) {
+        const baseUrl = normalizeBaseUrl(queue.shift());
+
+        if (!baseUrl || tried.has(baseUrl)) {
+            continue;
+        }
+
+        tried.add(baseUrl);
+
+        try {
+            const response = await fetch(buildAuthUrl(baseUrl, path), {
+                method,
+                headers: buildAuthHeaders(Boolean(payload)),
+                body: payload ? JSON.stringify(payload) : undefined,
+                signal
+            });
+            const data = expectBody ? await readJsonSafely(response) : null;
+
+            if (response.ok) {
+                lastAuthUrlUsed = baseUrl;
+                return { ok: true, status: response.status, data, authUrl: baseUrl };
+            }
+
+            const leaderUrl = normalizeBaseUrl(data?.leaderUrl);
+            if (response.status === 503 && data?.error === "not_leader" && leaderUrl && !tried.has(leaderUrl)) {
+                queue.unshift(leaderUrl);
+                continue;
+            }
+
+            if (response.status >= 500 || response.status === 503) {
+                continue;
+            }
+
+            lastAuthUrlUsed = baseUrl;
+            return { ok: false, status: response.status, data, authUrl: baseUrl };
+        } catch (error) {
+            if (signal?.aborted || error?.name === "AbortError") {
+                throw error;
+            }
+            continue;
+        }
+    }
+
+    return { ok: false, status: 0, data: null, authUrl: null };
 }
 
 function validateCredentials(username, password) {
@@ -64,18 +131,7 @@ function validateGoogleUsername(username) {
 }
 
 async function sendAuthRequest(path, payload) {
-    try {
-        const response = await fetch(buildAuthUrl(path), {
-            method: "POST",
-            headers: buildAuthHeaders(true),
-            body: JSON.stringify(payload)
-        });
-        const data = await readJsonSafely(response);
-
-        return { ok: response.ok, status: response.status, data };
-    } catch (error) {
-        return { ok: false, status: 0, data: null };
-    }
+    return fetchJsonWithFallback(path, { method: "POST", payload, expectBody: true });
 }
 
 async function requestCoordinatorAssignment() {
@@ -83,25 +139,26 @@ async function requestCoordinatorAssignment() {
     const timeoutId = window.setTimeout(() => controller.abort(), 8000);
 
     try {
-        const response = await fetch(buildAuthUrl("/coordinator"), {
-            headers: buildAuthHeaders(false),
+        const result = await fetchJsonWithFallback("/coordinator", {
+            method: "GET",
+            expectBody: true,
             signal: controller.signal
         });
-        const data = await readJsonSafely(response);
 
-        if (response.ok && data?.coordinatorId && data?.publicUrl) {
+        if (result.ok && result.data?.coordinatorId && result.data?.publicUrl) {
             return {
                 ok: true,
-                status: response.status,
-                coordinatorId: String(data.coordinatorId).trim(),
-                publicUrl: String(data.publicUrl).trim().replace(/\/+$/, "")
+                status: result.status,
+                coordinatorId: String(result.data.coordinatorId).trim(),
+                publicUrl: String(result.data.publicUrl).trim().replace(/\/+$/, ""),
+                authUrl: result.authUrl
             };
         }
 
         return {
             ok: false,
-            status: response.status,
-                error: data?.error || "coordinator_lookup_failed"
+            status: result.status,
+            error: result.data?.error || "coordinator_lookup_failed"
         };
     } catch (error) {
         return {
@@ -441,3 +498,4 @@ document.addEventListener("DOMContentLoaded", bindAuthPage);
 window.getStoredToken = () => localStorage.getItem(AUTH_STORAGE_KEYS.token);
 window.clearStoredSession = clearSession;
 window.requestCoordinatorAssignment = requestCoordinatorAssignment;
+window.getLastAuthUrlUsed = () => lastAuthUrlUsed;

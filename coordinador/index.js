@@ -37,6 +37,14 @@ function readIntegerEnv(name, fallback) {
   return value;
 }
 
+function parseUrlList(rawValue) {
+  return String(rawValue || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => normalizeBaseUrl(item));
+}
+
 function normalizeBaseUrl(url) {
   return String(url || "").trim().replace(/\/+$/, "");
 }
@@ -79,13 +87,84 @@ function toHttpBaseUrl(url) {
   return normalized;
 }
 
+function buildAuthHeaders(includeJsonContentType = false) {
+  const headers = {
+    "Accept": "application/json",
+    "ngrok-skip-browser-warning": "1"
+  };
+
+  if (includeJsonContentType) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
+}
+
+async function readJsonSafely(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
+}
+
+async function requestAuthJson(path, { method = "GET", payload = null, expectBody = true } = {}) {
+  const tried = new Set();
+  const queue = [...AUTH_URLS];
+
+  while (queue.length) {
+    const authUrl = normalizeHttpBaseUrl(queue.shift());
+
+    if (!authUrl || tried.has(authUrl)) {
+      continue;
+    }
+
+    tried.add(authUrl);
+
+    try {
+      const response = await fetch(`${authUrl}${path}`, {
+        method,
+        headers: buildAuthHeaders(Boolean(payload)),
+        body: payload ? JSON.stringify(payload) : undefined
+      });
+      const data = expectBody ? await readJsonSafely(response) : null;
+
+      if (response.ok) {
+        return { ok: true, status: response.status, data, authUrl };
+      }
+
+      const leaderUrl = normalizeHttpBaseUrl(data?.leaderUrl);
+      if (response.status === 503 && data?.error === "not_leader" && leaderUrl && !tried.has(leaderUrl)) {
+        queue.unshift(leaderUrl);
+        continue;
+      }
+
+      if (response.status >= 500 || response.status === 503) {
+        continue;
+      }
+
+      return { ok: false, status: response.status, data, authUrl };
+    } catch (error) {
+      continue;
+    }
+  }
+
+  return { ok: false, status: 0, data: null, authUrl: null };
+}
+
 const PUBLIC_PORT = readIntegerEnv("PORT", 5000);
 const PEER_PORT = readIntegerEnv("PEER_PORT", PUBLIC_PORT + 1000);
 const JWT_SECRET = readRequiredEnv("JWT_SECRET", { minLength: 32 });
 const COORDINATOR_ID = readOptionalEnv("COORDINATOR_ID") || `coord-${PUBLIC_PORT}`;
-const AUTH_SERVICE_URL = normalizeHttpBaseUrl(
-  readOptionalEnv("AUTH_SERVICE_URL") || "http://localhost:4000"
-);
+const AUTH_URLS = parseUrlList(readOptionalEnv("AUTH_URLS") || readOptionalEnv("AUTH_SERVICE_URL") || "http://localhost:4000")
+  .map((url) => normalizeHttpBaseUrl(url));
+const AUTH_SERVICE_URL = AUTH_URLS[0];
 const PUBLIC_WS_URL = normalizeWebSocketBaseUrl(
   readOptionalEnv("PUBLIC_WS_URL") || `ws://localhost:${PUBLIC_PORT}`
 );
@@ -721,10 +800,10 @@ async function sendHeartbeat() {
   };
 
   try {
-    await fetch(`${AUTH_SERVICE_URL}/heartbeat`, {
+    await requestAuthJson("/heartbeat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      payload,
+      expectBody: true
     });
   } catch (error) {
     console.error("heartbeat failed:", error.message);
@@ -733,12 +812,12 @@ async function sendHeartbeat() {
 
 async function refreshPeerDirectory() {
   try {
-    const response = await fetch(`${AUTH_SERVICE_URL}/peers`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    const result = await requestAuthJson("/peers?kind=coordinators", { method: "GET", expectBody: true });
+    if (!result.ok) {
+      throw new Error(`HTTP ${result.status}`);
     }
 
-    const data = await response.json();
+    const data = result.data;
     const peers = Array.isArray(data?.peers) ? data.peers : [];
     const visiblePeerIds = new Set();
 

@@ -18,6 +18,18 @@ function readOptionalEnv(name) {
   return String(process.env[name] || "").trim();
 }
 
+function normalizeUrlList(value) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(",")
+        .map((item) => item.trim());
+
+  return rawItems
+    .map((item) => String(item || "").trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+
 function readPort() {
   const rawPort = String(process.env.PORT || "").trim();
 
@@ -35,7 +47,8 @@ function readPort() {
 }
 
 const runtimeConfig = Object.freeze({
-  AUTH_URL: readRequiredEnv("AUTH_URL"),
+  AUTH_URLS: normalizeUrlList(process.env.AUTH_URLS || process.env.AUTH_URL),
+  AUTH_URL: normalizeUrlList(process.env.AUTH_URLS || process.env.AUTH_URL)[0] || readRequiredEnv("AUTH_URL"),
   WS_URL: readOptionalEnv("WS_URL"),
   GOOGLE_CLIENT_ID: readOptionalEnv("GOOGLE_CLIENT_ID")
 });

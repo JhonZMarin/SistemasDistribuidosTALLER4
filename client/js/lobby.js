@@ -34,6 +34,16 @@ function setCoordinatorMeta(coordinator) {
     }
 }
 
+function setAuthMeta(authUrl) {
+    const element = document.getElementById("auth-url");
+
+    if (!element) {
+        return;
+    }
+
+    element.textContent = authUrl || window.getLastAuthUrlUsed?.() || "Esperando auth...";
+}
+
 function clearReconnectTimer() {
     if (reconnectTimerId !== null) {
         clearTimeout(reconnectTimerId);
@@ -148,6 +158,7 @@ async function resolveCoordinator() {
 
     currentCoordinator = assignment;
     setCoordinatorMeta(assignment);
+    setAuthMeta(assignment.authUrl || window.getLastAuthUrlUsed?.());
 
     if (shouldAvoidCoordinator(assignment)) {
         currentCoordinator = null;
