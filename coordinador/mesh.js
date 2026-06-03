@@ -197,13 +197,25 @@ function connectToPeer(peer) {
   if (!peer?.coordinatorId || state.pendingOutboundPeerIds.has(peer.coordinatorId) || state.peerConnections.has(peer.coordinatorId)) return;
   if (COORDINATOR_ID.localeCompare(peer.coordinatorId) >= 0) return;
 
+  console.log(`[MESH] Connecting outbound to ${peer.coordinatorId} at ${peer.peerUrl}`);
   state.pendingOutboundPeerIds.add(peer.coordinatorId);
-  const socket = new WebSocket(peer.peerUrl);
+  const socket = new WebSocket(peer.peerUrl, {
+    headers: { "ngrok-skip-browser-warning": "1" }
+  });
   attachPeerSocket(socket, "outbound", peer.coordinatorId);
 
   socket.on("open", () => {
+    console.log(`[MESH] WebSocket OPEN to ${peer.coordinatorId}`);
     socket._mesh.peerUrl = peer.peerUrl;
     sendPeerHello(socket);
+  });
+
+  socket.on("error", (err) => {
+    console.error(`[MESH] WebSocket ERROR to ${peer.coordinatorId}:`, err.message);
+  });
+
+  socket.on("close", (code, reason) => {
+    console.log(`[MESH] WebSocket CLOSED to ${peer.coordinatorId}: code=${code} reason=${String(reason)}`);
   });
 }
 
@@ -231,6 +243,8 @@ async function refreshPeerDirectory() {
     const data = await response.json();
     const peers = Array.isArray(data?.peers) ? data.peers : [];
     const visiblePeerIds = new Set();
+
+    console.log(`[MESH] Discovered ${peers.length} peers from auth-service:`, peers.map(p => p.coordinatorId).join(', '));
 
     for (const peer of peers) {
       const peerId = String(peer?.coordinatorId || "").trim();
