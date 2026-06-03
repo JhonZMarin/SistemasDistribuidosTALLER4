@@ -168,7 +168,14 @@ const app = express();
 const authPeerServer = http.createServer();
 const authPeerWss = new WebSocketServer({ noServer: true });
 
-app.use(cors());
+const corsOptions = {
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "ngrok-skip-browser-warning", "Accept"]
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: "8kb" }));
 
 function emitToken(user) {
