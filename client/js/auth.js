@@ -100,10 +100,21 @@ async function requestCoordinatorAssignment() {
             };
         }
 
+        if (response.status === 503 && data?.error === "not_leader" && data?.leader) {
+            console.log(`[AUTH] Redirigiendo peticion al lider: ${data.leader}`);
+            try {
+                window.AUTH_SERVICES = [data.leader, ...window.AUTH_SERVICES.filter(u => u !== data.leader)];
+                window.clearTimeout(timeoutId);
+                return await requestCoordinatorAssignment(); // retry
+            } catch (e) {
+                // fallthrough
+            }
+        }
+
         return {
             ok: false,
             status: response.status,
-                error: data?.error || "coordinator_lookup_failed"
+            error: data?.error || "coordinator_lookup_failed"
         };
     } catch (error) {
         return {

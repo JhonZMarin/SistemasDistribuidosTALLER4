@@ -85,7 +85,7 @@ app.get("/status", (_request, response) => {
 
 // ── Coordinator registry routes ──────────────────────────────────────────
 
-app.post("/heartbeat", (request, response) => {
+app.post("/heartbeat", writeGuard, (request, response) => {
   const validation = validateHeartbeatPayload(request.body);
 
   if (!validation.ok) {
@@ -106,7 +106,7 @@ app.post("/heartbeat", (request, response) => {
   return response.status(200).json({ ok: true });
 });
 
-app.get("/coordinator", (_request, response) => {
+app.get("/coordinator", writeGuard, (_request, response) => {
   const coordinators = listAliveCoordinators();
 
   if (!coordinators.length) {
@@ -135,7 +135,7 @@ app.get("/coordinator", (_request, response) => {
   });
 });
 
-app.get("/peers", (_request, response) => {
+app.get("/peers", writeGuard, (_request, response) => {
   const peers = listAliveCoordinators().map((coordinator) => ({
     coordinatorId: coordinator.coordinatorId,
     publicUrl: coordinator.publicUrl,

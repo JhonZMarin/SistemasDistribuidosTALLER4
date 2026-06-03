@@ -1,6 +1,6 @@
 const { WebSocket } = require("ws");
 const { 
-  COORDINATOR_ID, AUTH_SERVICE_URL, PUBLIC_WS_URL, PEER_WS_URL, 
+  COORDINATOR_ID, AUTH_SERVICE_URLS, PUBLIC_WS_URL, PEER_WS_URL, 
   toHttpBaseUrl, readOptionalEnv 
 } = require("./config");
 const state = require("./state");
@@ -223,24 +223,60 @@ function connectToPeer(peer) {
   });
 }
 
+let activeAuthIndex = 0;
+
+async function fetchFromAuth(path, options) {
+  for (let i = 0; i < AUTH_SERVICE_URLS.length; i++) {
+    const url = AUTH_SERVICE_URLS[activeAuthIndex];
+    try {
+      const res = await fetch(`${url}${path}`, options);
+      
+      // If we hit a replica that is guarding writes, it will return 503 not_leader
+      if (res.status === 503) {
+        let data;
+        try { data = await res.json(); } catch(e) {}
+        if (data?.error === "not_leader" && data?.leader) {
+          const leaderUrl = toHttpBaseUrl(data.leader);
+          const leaderIndex = AUTH_SERVICE_URLS.findIndex(u => u === leaderUrl);
+          if (leaderIndex !== -1) {
+            activeAuthIndex = leaderIndex;
+          } else {
+            // Not in array? Add it and use it
+            AUTH_SERVICE_URLS.push(leaderUrl);
+            activeAuthIndex = AUTH_SERVICE_URLS.length - 1;
+          }
+          // Retry immediately with the new leader
+          return await fetchFromAuth(path, options);
+        }
+        return res; // Some other 503 error
+      }
+      return res; // Success or normal error
+    } catch (error) {
+      // Network error, try next auth node
+      activeAuthIndex = (activeAuthIndex + 1) % AUTH_SERVICE_URLS.length;
+    }
+  }
+  throw new Error("All Auth Services are unreachable");
+}
+
 async function sendHeartbeat() {
   const payload = {
     coordinatorId: COORDINATOR_ID, publicUrl: PUBLIC_WS_URL, peerUrl: PEER_WS_URL,
     connectedPlayers: state.localSockets.size, uptime: Math.floor(process.uptime())
   };
   try {
-    await fetch(`${AUTH_SERVICE_URL}/heartbeat`, {
+    await fetchFromAuth(`/heartbeat`, {
       method: "POST", headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "1" },
       body: JSON.stringify(payload)
     });
   } catch (error) {
-    console.error("heartbeat failed:", error.message);
+    console.error("[MESH] Heartbeat failed:", error.message);
   }
 }
 
 async function refreshPeerDirectory() {
   try {
-    const response = await fetch(`${AUTH_SERVICE_URL}/peers`, {
+    const response = await fetchFromAuth(`/peers`, {
       headers: { "ngrok-skip-browser-warning": "1" }
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

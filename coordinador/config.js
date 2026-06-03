@@ -80,9 +80,9 @@ const PUBLIC_PORT = readIntegerEnv("PORT", 5000);
 const PEER_PORT = readIntegerEnv("PEER_PORT", PUBLIC_PORT + 1000);
 const JWT_SECRET = readRequiredEnv("JWT_SECRET", { minLength: 32 });
 const COORDINATOR_ID = readOptionalEnv("COORDINATOR_ID") || `coord-${PUBLIC_PORT}`;
-const AUTH_SERVICE_URL = normalizeHttpBaseUrl(
-  readOptionalEnv("AUTH_SERVICE_URL") || "http://localhost:4000"
-);
+const AUTH_SERVICE_URLS = (readOptionalEnv("AUTH_SERVICE_URLS") || readOptionalEnv("AUTH_SERVICE_URL") || "http://localhost:4000")
+  .split(",")
+  .map(u => normalizeHttpBaseUrl(u.trim()));
 const PUBLIC_WS_URL = normalizeWebSocketBaseUrl(
   readOptionalEnv("PUBLIC_WS_URL") || `ws://localhost:${PUBLIC_PORT}`
 );
@@ -135,7 +135,7 @@ module.exports = {
   PEER_PORT,
   JWT_SECRET,
   COORDINATOR_ID,
-  AUTH_SERVICE_URL,
+  AUTH_SERVICE_URLS,
   PUBLIC_WS_URL,
   PEER_WS_URL,
   WORLD_WIDTH,
