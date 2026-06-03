@@ -5,9 +5,16 @@ const {
 } = require("./config");
 const state = require("./state");
 
-// We need game.js later, but we can't require it at the top if game.js requires mesh.js
-// So we use getter or require inside functions, or just require it (Node resolves it if exported properly)
-const game = require("./game");
+// Lazy-load game.js para evitar el problema de dependencia circular.
+// game.js requiere mesh.js y mesh.js requiere game.js.
+// Si ambos se cargan al mismo tiempo, uno de los dos recibe un objeto vacío.
+// Con lazy-load, game.js se resuelve solo cuando se llama por primera vez,
+// momento en el cual ambos módulos ya terminaron de inicializarse.
+let _game = null;
+function game() {
+  if (!_game) _game = require("./game");
+  return _game;
+}
 
 function broadcastToPeers(message) {
   const payload = JSON.stringify(message);
@@ -20,12 +27,12 @@ function broadcastToPeers(message) {
 
 function syncLocalPlayersToPeer(socket) {
   if (socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify(game.buildPlayersSnapshotMessage()));
+  socket.send(JSON.stringify(game().buildPlayersSnapshotMessage()));
 }
 
 function broadcastSnapshotToPeers() {
   if (!state.peerConnections.size) return;
-  broadcastToPeers(game.buildPlayersSnapshotMessage());
+  broadcastToPeers(game().buildPlayersSnapshotMessage());
 }
 
 function listVisiblePeers() {
@@ -79,7 +86,7 @@ function cleanupPeerSocket(socket) {
   const current = state.peerConnections.get(peerId);
   if (current && current.socket === socket) {
     state.peerConnections.delete(peerId);
-    game.removePlayersOwnedBy(peerId);
+    game().removePlayersOwnedBy(peerId);
   }
 }
 
@@ -104,28 +111,28 @@ function handlePeerReplicationMessage(socket, message) {
 
   switch (message.type) {
     case "player_joined":
-      if (game.upsertRemotePlayer(message)) game.broadcastState();
+      if (game().upsertRemotePlayer(message)) game().broadcastState();
       break;
     case "player_left":
       if (state.players.get(String(message.userId || "").trim())?.ownerCoordinatorId === String(message.origin || "").trim()) {
         state.players.delete(String(message.userId || "").trim());
-        game.broadcastState();
-        game.checkWinConditions();
+        game().broadcastState();
+        game().checkWinConditions();
       }
       break;
     case "intent_replicate":
-      game.applyRemoteIntent(message);
+      game().applyRemoteIntent(message);
       break;
     case "extras_replicate":
-      if (game.applyRemoteExtras(message)) game.broadcastState();
+      if (game().applyRemoteExtras(message)) game().broadcastState();
       break;
     case "players_snapshot":
-      if (game.applyRemotePlayersSnapshot(message)) game.broadcastState();
+      if (game().applyRemotePlayersSnapshot(message)) game().broadcastState();
       break;
     case "global_state_replicate":
       if (message.state) {
         state.globalGameState = message.state;
-        game.broadcastState();
+        game().broadcastState();
       }
       break;
     case "eject_replicate":
@@ -133,7 +140,7 @@ function handlePeerReplicationMessage(socket, message) {
       if (ejectedPlayer && ejectedPlayer.ownerCoordinatorId === COORDINATOR_ID) {
         ejectedPlayer.extras = { ...ejectedPlayer.extras, isGhost: true };
         broadcastToPeers({ type: "extras_replicate", origin: COORDINATOR_ID, userId: message.targetId, extras: { ...ejectedPlayer.extras } });
-        game.broadcastState();
+        game().broadcastState();
       }
       break;
     case "kill_replicate":
@@ -143,7 +150,7 @@ function handlePeerReplicationMessage(socket, message) {
         state.globalGameState.corpses.push({ id: victim.userId, x: victim.x, y: victim.y, breed: victim.extras.breed });
         broadcastToPeers({ type: "extras_replicate", origin: COORDINATOR_ID, userId: message.targetId, extras: { ...victim.extras } });
         broadcastToPeers({ type: "global_state_replicate", origin: COORDINATOR_ID, state: state.globalGameState });
-        game.broadcastState();
+        game().broadcastState();
       }
       break;
     case "chat_replicate":
