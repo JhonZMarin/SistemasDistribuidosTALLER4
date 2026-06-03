@@ -103,6 +103,10 @@ function handlePeerHello(socket, message) {
   if (direction === "inbound" && COORDINATOR_ID.localeCompare(peerId) < 0) { socket.close(4002, "outbound connection required"); return; }
   if (direction === "outbound" && COORDINATOR_ID.localeCompare(peerId) >= 0) { socket.close(4002, "inbound connection required"); return; }
   if (!registerPeerConnection(socket, peerId, direction)) return;
+
+  if (direction === "inbound") {
+    sendPeerHello(socket);
+  }
 }
 
 function handlePeerReplicationMessage(socket, message) {
