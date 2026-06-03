@@ -68,6 +68,7 @@ async function sendAuthRequest(path, payload) {
         const response = await fetch(buildAuthUrl(path), {
             method: "POST",
             headers: buildAuthHeaders(true),
+            cache: "no-store",
             body: JSON.stringify(payload)
         });
         const data = await readJsonSafely(response);
@@ -85,7 +86,8 @@ async function requestCoordinatorAssignment() {
     try {
         const response = await fetch(buildAuthUrl("/coordinator"), {
             headers: buildAuthHeaders(false),
-            signal: controller.signal
+            signal: controller.signal,
+            cache: "no-store"
         });
         const data = await readJsonSafely(response);
 

@@ -43,6 +43,20 @@ export class GameUI {
     this.myUserId = null;
     this.isGhost = false;
     this.isImpostor = false;
+
+    // Network Info Modal
+    this.btnNetworkInfo = document.getElementById('btn-network-info');
+    this.networkInfoContainer = document.getElementById('network-info-btn-container');
+    this.networkInfoModal = document.getElementById('network-info-modal');
+    this.modalPlayersListElem = document.getElementById('modal-players-list');
+    this.modalCoordIdElem = document.getElementById('modal-coordinator-id');
+    this.modalCoordUrlElem = document.getElementById('modal-coordinator-url');
+
+    if (this.btnNetworkInfo && this.networkInfoModal) {
+        this.btnNetworkInfo.addEventListener('click', () => {
+            this.networkInfoModal.showModal();
+        });
+    }
   }
 
   // --- Helpers de Seguridad ---
@@ -68,6 +82,9 @@ export class GameUI {
   updateCoordinatorInfo(coordinatorId, publicUrl) {
     if (this.coordIdElem) this.coordIdElem.textContent = coordinatorId || '---';
     if (this.coordUrlElem) this.coordUrlElem.textContent = publicUrl || '---';
+
+    if (this.modalCoordIdElem) this.modalCoordIdElem.textContent = coordinatorId || '---';
+    if (this.modalCoordUrlElem) this.modalCoordUrlElem.textContent = publicUrl || '---';
   }
 
   setMyUserId(userId) {
@@ -103,10 +120,14 @@ export class GameUI {
       `;
       this.playersListElem.appendChild(li);
 
-      // Duplicar en el modal de vitales/radar
+      // Duplicar en el modal de vitales/radar y en el modal de red
       if (this.vitalsListElem) {
         const liVital = li.cloneNode(true);
         this.vitalsListElem.appendChild(liVital);
+      }
+      if (this.modalPlayersListElem) {
+        const liNetwork = li.cloneNode(true);
+        this.modalPlayersListElem.appendChild(liNetwork);
       }
     }
   }
@@ -138,6 +159,7 @@ export class GameUI {
     if (this.playingControls) this.playingControls.style.display = 'none';
     const lobbyPanel = document.getElementById('lobby-panel');
     if (lobbyPanel) lobbyPanel.style.display = 'block';
+    if (this.networkInfoContainer) this.networkInfoContainer.style.display = 'none';
   }
 
   showPlayingControls(globalTasks, totalTasks) {
@@ -146,6 +168,7 @@ export class GameUI {
     if (lobbyPanel) lobbyPanel.style.display = 'none';
     
     if (this.playingControls) this.playingControls.style.display = 'flex';
+    if (this.networkInfoContainer) this.networkInfoContainer.style.display = 'block';
 
     if (this.roleDisplay) {
       if (this.isGhost) {

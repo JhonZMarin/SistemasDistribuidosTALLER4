@@ -116,9 +116,17 @@ function removePlayersOwnedBy(ownerCoordinatorId) {
   let changed = false;
   for (const [userId, player] of state.players.entries()) {
     if (player.ownerCoordinatorId === ownerCoordinatorId) {
-      if (player.localSocket) state.localSockets.delete(userId);
-      state.players.delete(userId);
-      changed = true;
+      if (state.globalGameState.status === "playing") {
+        player.extras = { ...player.extras, disconnected: true };
+        player.intent = { x: 0, y: 0 };
+        mesh.broadcastToPeers({ type: "extras_replicate", origin: COORDINATOR_ID, userId: player.userId, extras: player.extras });
+        mesh.broadcastToPeers({ type: "intent_replicate", origin: COORDINATOR_ID, userId: player.userId, intent: { dir: { x: 0, y: 0 } } });
+        changed = true;
+      } else {
+        if (player.localSocket) state.localSockets.delete(userId);
+        state.players.delete(userId);
+        changed = true;
+      }
     }
   }
   if (changed) broadcastState();

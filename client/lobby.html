@@ -66,7 +66,7 @@
     </div>
       
     <!-- Controles de Juego Superpuestos -->
-    <div id="playing-controls" style="display: none; position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); pointer-events: auto; background: rgba(9, 18, 34, 0.85); padding: 15px; border-radius: 12px; border: 1px solid var(--line); min-width: 350px;">
+      <div id="playing-controls" style="display: none; position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); pointer-events: auto; background: rgba(9, 18, 34, 0.85); padding: 15px; border-radius: 12px; border: 1px solid var(--line); min-width: 350px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
         <p id="role-display" style="font-weight: bold; margin: 0; color: var(--text); font-size: 1.2rem;"></p>
         <button id="btn-vitals" class="button button--ghost" style="padding: 5px 15px; display: none;">Vitales / Radar</button>
@@ -82,8 +82,28 @@
       <button id="btn-call-meeting" class="button button--accent" style="width: 100%; display: none; margin-top: 10px; background: #e63946; color: white;">🚨 LLAMAR REUNIÓN</button>
     </div>
 
+      <!-- Botón Flotante Red -->
+      <div id="network-info-btn-container" style="display: none; position: absolute; top: 15px; right: 15px; pointer-events: auto; z-index: 20;">
+        <button id="btn-network-info" class="button button--ghost" style="padding: 8px 15px; background: rgba(9, 18, 34, 0.8); border: 1px solid var(--line);">🌐 Jugadores y Red</button>
+      </div>
+
+      <!-- Modal de Información de Red y Jugadores -->
+      <dialog id="network-info-modal" style="pointer-events: auto; border: 1px solid var(--line); border-radius: 12px; background: rgba(9, 18, 34, 0.95); color: var(--text); padding: 20px; width: 350px;">
+        <h3 style="margin-bottom: 15px; color: var(--cyan); border-bottom: 1px solid var(--line); padding-bottom: 5px;">Información de Conexión</h3>
+        <div style="font-size: 0.85rem; margin-bottom: 15px;">
+          <p style="margin: 0; color: var(--muted);">Coordinador Actual:</p>
+          <p id="modal-coordinator-id" style="margin: 0; font-weight: bold; color: var(--text);">---</p>
+          <p id="modal-coordinator-url" style="margin: 5px 0 0 0; font-family: monospace; color: var(--amber); word-break: break-all;">---</p>
+        </div>
+        
+        <h4 style="margin-bottom: 10px; border-bottom: 1px solid var(--line); padding-bottom: 5px;">Jugadores en Partida</h4>
+        <ul id="modal-players-list" class="players-list" style="max-height: 200px; overflow-y: auto;"></ul>
+        
+        <button onclick="document.getElementById('network-info-modal').close()" class="button button--primary" style="width: 100%; margin-top: 15px;">Cerrar</button>
+      </dialog>
+
       <!-- Modal de Signos Vitales -->
-      <dialog id="vitals-modal" style="border: 1px solid var(--line); border-radius: 12px; background: rgba(9, 18, 34, 0.95); color: var(--text); padding: 20px; width: 300px;">
+      <dialog id="vitals-modal" style="pointer-events: auto; border: 1px solid var(--line); border-radius: 12px; background: rgba(9, 18, 34, 0.95); color: var(--text); padding: 20px; width: 300px;">
         <h3 style="margin-bottom: 15px;">Panel de Signos Vitales</h3>
         <ul id="vitals-list" class="players-list"></ul>
         <button onclick="document.getElementById('vitals-modal').close()" class="button button--ghost" style="width: 100%; margin-top: 15px;">Cerrar</button>
